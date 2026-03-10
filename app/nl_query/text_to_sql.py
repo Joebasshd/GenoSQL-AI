@@ -1,0 +1,150 @@
+import re
+import ollama
+
+MODEL = "qwen2.5-coder:7b"
+
+SCHEMA = """
+Database: Genomic Variants
+
+Table: variants
+
+Columns:
+- chrom (TEXT): chromosome identifier
+- pos (INTEGER): genomic position
+- ref (TEXT): reference allele
+- alt (TEXT): alternate allele
+- qual (FLOAT): variant quality score
+"""
+
+SYSTEM_PROMPT = f"""
+You are a bioinformatics SQL expert.
+
+Your job is to convert natural language questions into PostgreSQL queries.
+
+Database schema:
+{SCHEMA}
+
+Rules:
+- Only return SQL
+- Do not explain anything
+- Do not include markdown
+- Use valid PostgreSQL syntax
+- Only query the variants table
+"""
+
+# ── Dangerous keywords that should never appear in generated SQL ──
+
+BLOCKED_KEYWORDS = [
+    "DROP", "DELETE", "TRUNCATE", "ALTER", "INSERT",
+    "UPDATE", "CREATE", "GRANT", "REVOKE", "EXEC",
+    "EXECUTE", "INTO OUTFILE", "LOAD_FILE", "COPY",
+]
+
+ALLOWED_TABLES = {"variants"}
+
+
+# SQL Cleaner 
+def clean_sql(raw: str) -> str:
+    """
+    Strips markdown fences, inline comments, and leading/trailing
+    whitespace from LLM-generated SQL output.
+    """
+    sql = raw.strip()
+
+    # Strip markdown code fences (```sql ... ``` or ``` ... ```)
+    sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
+    sql = re.sub(r"\s*```$", "", sql)
+
+    # Remove SQL single-line comments (-- ...)
+    sql = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
+
+    # Remove SQL block comments (/* ... */)
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+
+    # Collapse extra whitespace into single spaces
+    sql = re.sub(r"\s+", " ", sql).strip()
+
+    # Ensure it ends with a semicolon
+    if sql and not sql.endswith(";"):
+        sql += ";"
+
+    return sql
+
+
+# SQL Guard
+
+def validate_sql(sql: str) -> tuple[bool, str]:
+    """
+    Validates that the SQL is safe to execute.
+    Returns (is_valid, reason).
+    """
+    upper = sql.upper()
+
+    # Must be a SELECT statement
+    if not upper.lstrip().startswith("SELECT"):
+        return False, "Only SELECT queries are allowed."
+
+    # Block dangerous keywords
+    for keyword in BLOCKED_KEYWORDS:
+        # Word-boundary match to avoid false positives
+        # e.g. "DELETION" shouldn't trigger "DELETE"
+        pattern = rf"\b{keyword}\b"
+        if re.search(pattern, upper):
+            return False, f"Blocked: query contains '{keyword}'."
+
+    # Check that only allowed tables are referenced
+    # Simple FROM / JOIN clause extraction
+    table_refs = re.findall(
+        r"\bFROM\s+(\w+)|\bJOIN\s+(\w+)",
+        upper
+    )
+    referenced_tables = {
+        t.lower() for pair in table_refs for t in pair if t
+    }
+
+    disallowed = referenced_tables - ALLOWED_TABLES
+    if disallowed:
+        return False, f"Blocked: references unauthorized table(s): {disallowed}"
+
+    return True, "OK"
+
+
+# Main entry point
+
+def generate_sql(question: str) -> dict:
+    """
+    Takes a natural language question, generates SQL via the LLM,
+    cleans it, validates it, and returns a result dict.
+    """
+    prompt = f"""
+Convert the following question into SQL.
+
+Question:
+{question}
+"""
+
+    response = ollama.chat(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ],
+        options={
+            "temperature": 0
+        }
+    )
+
+    raw_sql = response["message"]["content"].strip()
+
+    # Clean
+    sql = clean_sql(raw_sql)
+
+    # Validate
+    is_valid, reason = validate_sql(sql)
+
+    return {
+        "sql": sql,
+        "raw": raw_sql,
+        "valid": is_valid,
+        "reason": reason
+    }
