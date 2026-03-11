@@ -83,6 +83,10 @@ def validate_sql(sql: str) -> tuple[bool, str]:
     # Must be a SELECT statement
     if not upper.lstrip().startswith("SELECT"):
         return False, "Only SELECT queries are allowed."
+    
+    # Prevent multiple SQL statements
+    if sql.count(";") > 1:
+        return False, "Multiple SQL statements are not allowed."
 
     # Block dangerous keywords
     for keyword in BLOCKED_KEYWORDS:
@@ -108,6 +112,14 @@ def validate_sql(sql: str) -> tuple[bool, str]:
 
     return True, "OK"
 
+def enforce_limit(sql: str, limit: int = 50) -> str:
+
+    upper = sql.upper()
+
+    if "LIMIT" not in upper:
+        sql = sql.rstrip(";") + f" LIMIT {limit};"
+
+    return sql
 
 # Main entry point
 
@@ -141,6 +153,9 @@ Question:
 
     # Validate
     is_valid, reason = validate_sql(sql)
+
+    if is_valid:
+        sql = enforce_limit(sql)
 
     return {
         "sql": sql,
