@@ -1,5 +1,7 @@
 import re
 import ollama
+from app.rag.retriever import retrieve_similar_examples
+from app.rag.example_store import store_example
 
 MODEL = "qwen2.5-coder:7b"
 
@@ -13,7 +15,7 @@ Columns:
 - pos (INTEGER): genomic position
 - ref (TEXT): reference allele
 - alt (TEXT): alternate allele
-- qual (FLOAT): variant quality score
+- quality (FLOAT): variant quality score
 """
 
 SYSTEM_PROMPT = f"""

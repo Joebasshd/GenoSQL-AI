@@ -7,43 +7,43 @@ def seed():
         # Basic filtering
         (
             "show all variants on chromosome 22",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE chrom = '22';"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22';"
         ),
 
         # Range queries
         (
             "variants between positions 16000000 and 16100000",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE pos BETWEEN 16000000 AND 16100000;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE pos BETWEEN 16000000 AND 16100000;"
         ),
 
         # Combined filters
         (
             "variants on chromosome 22 between 16000000 and 16100000",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE chrom = '22' AND pos BETWEEN 16000000 AND 16100000;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22' AND pos BETWEEN 16000000 AND 16100000;"
         ),
 
         # Single position
         (
             "variants at position 16050075",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE pos = 16050075;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE pos = 16050075;"
         ),
 
         # Quality filtering
         (
             "high quality variants",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE qual > 30;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE qual > 30;"
         ),
 
         # Combined quality + chromosome
         (
             "high quality variants on chromosome 22",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE chrom = '22' AND qual > 30;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22' AND qual > 30;"
         ),
 
         # Limit query
         (
             "show a few variants on chromosome 22",
-            "SELECT chrom, pos, ref, alt, qual FROM variants WHERE chrom = '22' LIMIT 10;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22' LIMIT 10;"
         ),
 
     ]
