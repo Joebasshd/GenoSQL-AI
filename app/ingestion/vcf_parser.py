@@ -38,7 +38,7 @@ def ingest_vcf(file_path):
         variant_id = record.ID
         ref = record.REF
         alt = ",".join([str(a.value) for a in record.ALT])
-        qual = record.QUAL
+        quality = record.QUAL
         filt = ",".join(record.FILTER) if record.FILTER else None
         info = record.INFO
 
@@ -48,7 +48,7 @@ def ingest_vcf(file_path):
             variant_id,
             ref,
             alt,
-            qual,
+            quality,
             filt,
             json.dumps(info)
         ))

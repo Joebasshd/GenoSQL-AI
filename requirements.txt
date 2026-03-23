@@ -9,3 +9,4 @@ sentence-transformers
 pgvector
 python-dotenv
 ollama
+sqlparse

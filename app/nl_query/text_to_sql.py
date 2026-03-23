@@ -1,4 +1,5 @@
 import re
+import sqlparse
 import ollama
 from app.rag.retriever import retrieve_similar_examples
 from app.rag.example_store import store_example
@@ -10,13 +11,22 @@ Database: Genomic Variants
 
 Table: variants
 
-Columns:
+Columns (use these EXACT names — no abbreviations):
+- id (SERIAL): primary key
 - chrom (TEXT): chromosome identifier
 - pos (INTEGER): genomic position
+- variant_id (TEXT): variant identifier
 - ref (TEXT): reference allele
 - alt (TEXT): alternate allele
-- quality (FLOAT): variant quality score
+- quality (FLOAT): variant quality score  ← NOT "qual"
+- filter (TEXT): filter status
+- info (JSONB): additional info
 """
+
+ALLOWED_COLUMNS = {
+    "id", "chrom", "pos", "variant_id", "ref", "alt",
+    "quality", "filter", "info",
+}
 
 SYSTEM_PROMPT = f"""
 You are a bioinformatics SQL expert.
@@ -32,9 +42,8 @@ Rules:
 - Do not include markdown
 - Use valid PostgreSQL syntax
 - Only query the variants table
+- Use EXACT column names from the schema above (e.g. "quality", never "qual")
 """
-
-# ── Dangerous keywords that should never appear in generated SQL ──
 
 BLOCKED_KEYWORDS = [
     "DROP", "DELETE", "TRUNCATE", "ALTER", "INSERT",
@@ -113,6 +122,46 @@ def validate_sql(sql: str) -> tuple[bool, str]:
         return False, f"Blocked: references unauthorized table(s): {disallowed}"
 
     return True, "OK"
+
+
+def validate_columns(sql: str) -> tuple[bool, str]:
+    """
+    Parses the SQL and checks that every column reference exists in
+    ALLOWED_COLUMNS.  Returns (is_valid, reason).
+    """
+    try:
+        parsed = sqlparse.parse(sql)
+        if not parsed:
+            return False, "Could not parse SQL."
+
+        stmt = parsed[0]
+        tokens = list(stmt.flatten())
+
+        # Collect identifier-like tokens that sit next to keywords
+        # (SELECT list, WHERE, ORDER BY, GROUP BY, etc.)
+        identifiers: set[str] = set()
+        for tok in tokens:
+            # sqlparse token types: Name is a plain identifier
+            if tok.ttype is sqlparse.tokens.Name:
+                identifiers.add(tok.value.lower())
+
+        # Remove table names and SQL functions from the set
+        identifiers -= ALLOWED_TABLES
+        # Common SQL aggregate / function names that are not columns
+        sql_functions = {
+            "count", "sum", "avg", "min", "max", "coalesce",
+            "now", "lower", "upper", "length", "distinct",
+        }
+        identifiers -= sql_functions
+
+        bad = identifiers - ALLOWED_COLUMNS
+        if bad:
+            return False, f"Unknown column(s): {bad}. Valid columns are: {ALLOWED_COLUMNS}"
+
+        return True, "OK"
+
+    except Exception as exc:
+        return False, f"Column validation error: {exc}"
 
 def enforce_limit(sql: str, limit: int = 50) -> str:
 
@@ -193,6 +242,10 @@ def generate_sql(question: str) -> dict:
     # Clean and validate
     sql = clean_sql(raw_sql)
     is_valid, reason = validate_sql(sql)
+
+    # Second guard: reject unknown column names
+    if is_valid:
+        is_valid, reason = validate_columns(sql)
 
     if is_valid:
         sql = enforce_limit(sql)

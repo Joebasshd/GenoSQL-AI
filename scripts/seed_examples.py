@@ -31,13 +31,13 @@ def seed():
         # Quality filtering
         (
             "high quality variants",
-            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE qual > 30;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE quality > 30;"
         ),
 
         # Combined quality + chromosome
         (
             "high quality variants on chromosome 22",
-            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22' AND qual > 30;"
+            "SELECT chrom, pos, ref, alt, quality FROM variants WHERE chrom = '22' AND quality > 30;"
         ),
 
         # Limit query
