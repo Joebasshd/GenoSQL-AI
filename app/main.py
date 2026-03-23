@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from app.database import engine
@@ -56,3 +58,10 @@ def query(request: QueryRequest):
         'row_count': len(data),
         'results': data
     }
+
+
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+@app.get("/ui")
+def serve_ui():
+    return FileResponse("./frontend/index.html")
