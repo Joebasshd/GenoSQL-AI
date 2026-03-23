@@ -121,19 +121,59 @@ def enforce_limit(sql: str, limit: int = 50) -> str:
 
     return sql
 
+def build_prompt(question: str, examples: list) -> str:
+    """
+    Builds the user-facing prompt that gets sent to Ollama.
+
+    If we have similar past examples, we inject them here as
+    few-shot demonstrations. The LLM sees real (question → SQL)
+    pairs and uses them as a pattern to follow.
+
+    If there are no examples yet (cold start — empty sql_examples table),
+    we skip the examples block and just send the bare question.
+    This means the system works fine on day one, before any history exists,
+    and gets progressively smarter as it accumulates examples.
+    """
+    if examples:
+        # Format each example as a clear Q→SQL pair
+        examples_block = "\n\n".join(
+            f"Question: {row[0]}\nSQL: {row[1]}"
+            for row in examples
+        )
+        return f"""Here are some similar questions that were answered correctly:
+
+{examples_block}
+
+Now convert this new question into SQL.
+
+Question:
+{question}"""
+
+    else:
+        # Cold start: no examples yet, just ask directly
+        return f"""Convert the following question into SQL.
+
+Question:
+{question}"""
+
 # Main entry point
 
 def generate_sql(question: str) -> dict:
     """
-    Takes a natural language question, generates SQL via the LLM,
-    cleans it, validates it, and returns a result dict.
+    Full pipeline:
+    1. Retrieve similar past examples from pgvector
+    2. Build an augmented prompt with those examples injected
+    3. Call Ollama to generate SQL
+    4. Clean and validate the SQL
+    5. If valid, store this (question → SQL) pair back into sql_examples
+       so future queries can learn from it
     """
-    prompt = f"""
-Convert the following question into SQL.
 
-Question:
-{question}
-"""
+    # Retrieve similar examples from the vector store.
+    examples = retrieve_similar_examples(question, k=3)
+
+    # Build the prompt, injecting examples if we have any.
+    prompt = build_prompt(question, examples)
 
     response = ollama.chat(
         model=MODEL,
@@ -148,18 +188,18 @@ Question:
 
     raw_sql = response["message"]["content"].strip()
 
-    # Clean
+    # Clean and validate
     sql = clean_sql(raw_sql)
-
-    # Validate
     is_valid, reason = validate_sql(sql)
 
     if is_valid:
         sql = enforce_limit(sql)
+        store_example(question, sql)
 
     return {
         "sql": sql,
         "raw": raw_sql,
         "valid": is_valid,
-        "reason": reason
+        "reason": reason,
+        "examples_used": len(examples)
     }
