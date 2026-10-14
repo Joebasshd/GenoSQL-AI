@@ -40,6 +40,40 @@ CREATE INDEX IF NOT EXISTS idx_variants_af ON variants (af);
 CREATE INDEX IF NOT EXISTS idx_variants_type ON variants (variant_type);
 
 -- ─────────────────────────────────────────────────────────────
+-- clinvar: ClinVar GRCh37 VCF, one row per (site, ALT allele), alleles
+-- normalized exactly like `variants` so the two join on
+-- (chrom, pos, ref, alt).
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS clinvar (
+    id                     BIGSERIAL PRIMARY KEY,
+    chrom                  TEXT    NOT NULL,
+    pos                    INTEGER NOT NULL,
+    ref                    TEXT    NOT NULL,
+    alt                    TEXT    NOT NULL,
+    variation_id           INTEGER NOT NULL,   -- ClinVar VariationID (VCF ID)
+    allele_id              INTEGER,            -- ALLELEID
+    rsid                   TEXT,               -- 'rs' || RS
+    gene                   TEXT,               -- first symbol in GENEINFO
+    clinical_significance  TEXT,               -- CLNSIG, underscores → spaces
+    significance_class     TEXT,               -- pathogenic | likely_pathogenic | uncertain | likely_benign | benign | conflicting | other
+    is_pathogenic          BOOLEAN NOT NULL,   -- Pathogenic / Likely pathogenic / Pathogenic/Likely pathogenic
+    review_status          TEXT,               -- CLNREVSTAT, underscores → spaces
+    review_stars           SMALLINT,           -- 0..4 ClinVar gold stars
+    conditions             TEXT,               -- CLNDN, '|'-separated, underscores → spaces
+    variant_class          TEXT,               -- CLNVC: single nucleotide variant, Deletion, ...
+    consequences           TEXT,               -- MC names, ','-separated: missense_variant, ...
+    origin                 INTEGER             -- ORIGIN bit flags (1 germline, 2 somatic, ...)
+);
+
+-- Hash the alleles: some ClinVar deletions are kilobases long, beyond the
+-- B-tree row size limit for a plain (ref, alt) key.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clinvar_allele
+ON clinvar (chrom, pos, md5(ref), md5(alt), variation_id);
+CREATE INDEX IF NOT EXISTS idx_clinvar_locus ON clinvar (chrom, pos);
+CREATE INDEX IF NOT EXISTS idx_clinvar_gene ON clinvar (gene);
+CREATE INDEX IF NOT EXISTS idx_clinvar_rsid ON clinvar (rsid);
+
+-- ─────────────────────────────────────────────────────────────
 -- sql_examples: RAG memory of (question → SQL) pairs.
 -- Only `verified` rows are retrieved as few-shot examples; unverified
 -- model output is never fed back into the prompt (avoids self-poisoning).

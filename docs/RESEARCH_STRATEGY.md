@@ -85,11 +85,41 @@ its own. (They can appear as "future work".) RQ1–RQ3 from Chapter One map onto
   `memory=2GB`) or the DB on another host. The interesting frontier for this hardware class is
   **0.5B–3B** models — which makes the "semantic layer vs model size" ablation the central experiment.
 
+### First benchmark results (v0, 58 items: 52 answerable + 6 unanswerable; 2026-10-14)
+
+Full table: [eval/results/SUMMARY_v0.md](../eval/results/SUMMARY_v0.md). "Baseline" = table/column names only,
+no RAG, no repair. "Full" = semantic layer + 3 verified examples + up to 2 repairs + abstention.
+
+| config | EX (relaxed) | correct abstention | silent wrong answers* |
+|---|---|---|---|
+| 1.5B baseline | 15.4 % | 0/6 | 59 % |
+| 3B baseline | 15.4 % | 1/6 | 72 % |
+| 1.5B full | 51.9 % | 0/6 | 45 % |
+| 3B full | **61.5 %** | **6/6** | **21 %** |
+
+\*share of all items where the user receives a result table that is wrong (or any table for an unanswerable question).
+
+- Pipeline effect dwarfs model size: baseline→full is +36 pts (1.5B) and +46 pts (3B), McNemar p < 0.001 for both;
+  1.5B→3B at baseline: no difference (p = 1.0); 1.5B→3B full: p = 0.043.
+- Baseline failures are the genomics conventions the semantic layer encodes: `chrom = 'chr22'`, joining
+  `variants.id = clinvar.variation_id`, `variant_type = 'deletion'`, "rare" as a type. Most still *execute* —
+  the dangerous failure mode.
+- 1.5B never abstains; it invents tables/columns (`gnomad_variants`, `yri_af`), which the guard blocks (visible
+  error instead of a wrong answer). 3B abstains perfectly on unanswerables but **over-abstains on 8 answerable
+  items, mostly ClinVar joins** — the domain warnings ("no gene coordinates", "variants.rsid is NULL") are
+  over-applied. Safety/coverage trade-off worth a section in the paper.
+- Weakest categories for both: joins (1/5), multi-step (≤1/3).
+- Caveats: latency medians for `1.5b_r2` and the tail of `3b_norag_nosem_r0` are inflated (the runs overlapped
+  briefly); accuracy is unaffected (temperature 0). Prompts were *not* tuned on these items — before any prompt
+  iteration, split the benchmark into dev/test so test results stay clean.
+  v0 ran with the schema-wide column check; the table-aware guard (clear "column X exists only in table Y — join it"
+  repair hints) was added afterwards and should help joins on the next run.
+
 ## 4. Roadmap
 
 ### Phase 1 — Data breadth (1–2 weeks)
 - [ ] Gene annotations: GENCODE v19 (GRCh37) genes on chr22 → `genes(gene_name, gene_id, chrom, start_pos, end_pos, strand, biotype)`. Unlocks "variants in APOL1" — the most common real question.
-- [ ] ClinVar GRCh37 VCF, chr22 subset → `clinvar(chrom, pos, ref, alt, clnsig, clndn, review_status, gene)`. Unlocks "pathogenic variants common in AFR but rare in EUR" (genuinely interesting: population-differentiated clinically-relevant variants).
+- [x] ClinVar GRCh37 VCF, chr22 subset (fetched via tabix index, 4 MB; release 2026-10-11) → `clinvar(chrom, pos, ref, alt, clnsig, clndn, review_status, gene)`. Unlocks "pathogenic variants common in AFR but rare in EUR" (genuinely interesting: population-differentiated clinically-relevant variants).
 - [ ] 1000G sample panel (2,504 samples → 26 populations, 5 super-pops, sex) → `samples`.
 - [ ] Optional: sparse carrier genotypes for a gene subset (full chr22 genotypes ≈ 10⁸ rows — too big for the laptop target).
 - [ ] Add each table to `app/nl_query/schema.py` and `READABLE_TABLES` in `scripts/setup_db.py`.

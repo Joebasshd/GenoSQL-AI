@@ -55,6 +55,21 @@ def test_variant_type_from_alleles_not_vt_order():
     assert (snp["alt"], snp["variant_type"]) == ("T", "SNP")
 
 
+def test_split_alleles_are_normalized():
+    # REF=CG, ALT=TG,C  ->  C>T at the same pos, and a 1-base deletion CG>C
+    line = ("22\t20000000\t.\tCG\tTG,C\t100\tPASS\t"
+            "AC=5,7;AF=0.001,0.0014;AN=5008;VT=SNP,INDEL;MULTI_ALLELIC" + GENOTYPES + "\n")
+    snp, dele = as_dicts(line)
+    assert (snp["pos"], snp["ref"], snp["alt"], snp["variant_type"], snp["end_pos"]) == (20000000, "C", "T", "SNP", 20000000)
+    assert (dele["pos"], dele["ref"], dele["alt"], dele["variant_type"]) == (20000000, "CG", "C", "INDEL")
+
+
+def test_normalize_leading_trim_shifts_pos():
+    from app.ingestion.vcf_parser import normalize
+    assert normalize(100, "ACGT", "ACTT") == (102, "G", "T")
+    assert normalize(100, "A", "<CN0>") == (100, "A", "<CN0>")
+
+
 def test_structural_variant_end_and_type():
     [row] = as_dicts(SV)
     assert row["variant_type"] == "SV" and row["sv_type"] == "CNV"

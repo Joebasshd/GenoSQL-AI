@@ -67,6 +67,23 @@ def _first(values):
     return values[0] if isinstance(values, list) and values else None
 
 
+def normalize(pos: int, ref: str, alt: str) -> tuple[int, str, str]:
+    """
+    Minimal allele representation: trim shared trailing bases, then shared
+    leading bases (shifting pos), always keeping at least one base. Splitting
+    multi-allelic records leaves padding (ALT=CG,TG at REF=CG gives CG>TG,
+    really C>T); trimming makes rows joinable with other sources (ClinVar).
+    Symbolic SV alleles are left untouched.
+    """
+    if alt.startswith("<") or alt in (".", "*"):
+        return pos, ref, alt
+    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
+    while len(ref) > 1 and len(alt) > 1 and ref[0] == alt[0]:
+        ref, alt, pos = ref[1:], alt[1:], pos + 1
+    return pos, ref, alt
+
+
 def classify(ref: str, alt: str, sv_type) -> str:
     """
     Per-allele variant class. INFO VT can't be used for this: on multi-allelic
@@ -91,7 +108,6 @@ def parse_line(line: str) -> list[tuple]:
     multi = len(alt_list) > 1 or "MULTI_ALLELIC" in info
 
     end = _first(info.get("END"))
-    end_pos = int(end) if isinstance(end, int) else pos + len(ref) - 1
     rsid = None if vid == "." else vid
     quality = _num(qual)
     filt = None if filt == "." else filt
@@ -104,9 +120,11 @@ def parse_line(line: str) -> list[tuple]:
     extra_json = json.dumps(extra) if extra else None
 
     rows = []
-    for i, alt in enumerate(alt_list):
+    for i, raw_alt in enumerate(alt_list):
+        a_pos, a_ref, alt = normalize(pos, ref, raw_alt)
+        end_pos = int(end) if isinstance(end, int) else a_pos + len(a_ref) - 1
         rows.append((
-            chrom, pos, end_pos, rsid, ref, alt, classify(ref, alt, sv_type), sv_type, multi,
+            chrom, a_pos, end_pos, rsid, a_ref, alt, classify(a_ref, alt, sv_type), sv_type, multi,
             quality, filt,
             _pick(info.get("AC"), i), an, _pick(info.get("AF"), i),
             _pick(info.get("AFR_AF"), i), _pick(info.get("AMR_AF"), i),

@@ -6,3 +6,4 @@ data/*.vcf.gz
 data/*.tbi
 .vscode/
 .pytest_cache/
+data/clinvar/

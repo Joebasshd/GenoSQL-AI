@@ -29,7 +29,7 @@ def chat(messages: list[dict], model: str | None = None, backend: str | None = N
         r = httpx.post(
             f"{config.OLLAMA_HOST}/api/chat",
             json={"model": model, "messages": messages, "stream": False,
-                  "options": {"temperature": 0, "seed": 42}},
+                  "options": {"temperature": 0, "seed": 42, "num_ctx": config.LLM_NUM_CTX}},
             timeout=600,
         )
         r.raise_for_status()

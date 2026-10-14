@@ -48,6 +48,18 @@ SEEDS = [
      "SELECT COUNT(*) FROM variants WHERE variant_type = 'INDEL' "
      "AND length(ref) - length(alt) = 2;"),
 
+    ("how many ClinVar benign variants have at least two review stars",
+     "SELECT COUNT(*) FROM clinvar WHERE significance_class = 'benign' AND review_stars >= 2;"),
+
+    ("European and African frequencies of likely pathogenic ClinVar variants",
+     "SELECT c.gene, c.pos, c.ref, c.alt, c.clinical_significance, v.eur_af, v.afr_af "
+     "FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+     "AND v.ref = c.ref AND v.alt = c.alt WHERE c.significance_class = 'likely_pathogenic';"),
+
+    ("ClinVar variants reported for DiGeorge syndrome",
+     "SELECT gene, pos, ref, alt, clinical_significance, conditions FROM clinvar "
+     "WHERE conditions ILIKE '%digeorge%';"),
+
     ("what is the ancestral allele at 22:16050075",
      "SELECT chrom, pos, ref, alt, info->>'AA' AS ancestral_allele FROM variants "
      "WHERE chrom = '22' AND pos = 16050075;"),

@@ -147,12 +147,12 @@ def main():
             records.append(rec)
             fh.write(json.dumps(rec, default=str) + "\n")
             fh.flush()
-            mark = "✓" if rec["relaxed"] else "✗"
+            mark = "ok" if rec["relaxed"] else "--"
             print(f"[{i}/{len(items)}] {mark} {item['id']:<6} {rec['status']:<9} "
                   f"{rec['latency_ms'] / 1000:5.1f}s  {item['question'][:70]}")
 
     summarise(records, cfg, tag)
-    print(f"\nWall time {time.time() - started:,.0f}s → {out_path}")
+    print(f"\nWall time {time.time() - started:,.0f}s -> {out_path}")
 
 
 if __name__ == "__main__":
