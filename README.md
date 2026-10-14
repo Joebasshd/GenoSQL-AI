@@ -47,14 +47,15 @@ The chr22 VCF is `ALL.chr22.phase3_shapeit2_mvncall_integrated_v5a.20130502.geno
 
 ```bash
 python -m eval.run_eval --check-gold                         # validate the benchmark's gold SQL
-python -m eval.run_eval                                      # full pipeline
+python -m eval.run_eval                                      # full pipeline on the DEV split (default)
+python -m eval.run_eval --split test                         # held-out TEST split: report only, never tune
 python -m eval.run_eval --no-rag --no-semantic --repairs 0   # bare-LLM baseline
 python -m eval.run_eval --model qwen2.5-coder:3b             # model-size comparison
 python -m eval.summarize                                     # compare runs + McNemar tests
 pytest
 ```
 
-Metric is **execution accuracy**: gold and predicted SQL are both executed and their result sets compared (`strict`: same columns; `relaxed`: extra predicted columns allowed). Unanswerable questions are scored on correct abstention. See [docs/RESEARCH_STRATEGY.md](docs/RESEARCH_STRATEGY.md).
+Metric is **execution accuracy**: gold and predicted SQL are both executed and their result sets compared (`strict`: same columns; `relaxed`: extra predicted columns allowed). Unanswerable questions are scored on correct abstention. The benchmark has a frozen, category-stratified dev/test split (`eval/splits.json`, ~40/60): iterate on dev, report test. See [docs/RESEARCH_STRATEGY.md](docs/RESEARCH_STRATEGY.md).
 
 ## Safety model
 

@@ -9,11 +9,24 @@ Design rules
 - Questions avoid paraphrasing scripts/seed_examples.py.
 - `ordered` is set only when the question asks for a ranking.
 - gold_sql = None marks an unanswerable question (correct behaviour: abstain).
+- Add new items at the END of the list: ids are per-category counters, so
+  inserting in the middle would renumber (and re-split) existing items.
+
+Dev/test split
+- eval/splits.json freezes each item's split. Existing assignments never
+  change; new items are assigned so each category stays near DEV_FRACTION dev.
+- Iterate on prompts, seeds and schema notes using dev only. Run test rarely,
+  and never change anything because of an individual test item.
 """
+import hashlib
 import json
+import random
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent / "benchmark.jsonl"
+HERE = Path(__file__).resolve().parent
+OUT = HERE / "benchmark.jsonl"
+SPLITS = HERE / "splits.json"
+DEV_FRACTION = 0.4
 
 ITEMS = [
     # ── lookup ──────────────────────────────────────────────────────────
@@ -170,8 +183,46 @@ ITEMS = [
 ]
 
 
+def _fingerprint(item) -> str:
+    return hashlib.sha256((item["question"] + "|" + str(item["gold_sql"])).encode()).hexdigest()[:12]
+
+
+def assign_splits(items: list[dict]) -> dict:
+    """Keep frozen assignments; stratify new items per category toward DEV_FRACTION."""
+    frozen = json.loads(SPLITS.read_text(encoding="utf-8")) if SPLITS.exists() else {}
+    splits = {}
+    by_cat: dict[str, list[dict]] = {}
+    for item in items:
+        by_cat.setdefault(item["category"], []).append(item)
+
+    for cat, cat_items in by_cat.items():
+        new = []
+        for item in cat_items:
+            prev = frozen.get(item["id"])
+            if prev is None:
+                new.append(item)
+                continue
+            if prev["fingerprint"] != _fingerprint(item):
+                print(f"WARNING {item['id']}: question/gold changed since it was split "
+                      f"({prev['split']}); keeping its split")
+            splits[item["id"]] = {"split": prev["split"], "fingerprint": _fingerprint(item)}
+
+        random.Random(f"genosql-split-{cat}").shuffle(new)
+        for item in new:
+            n_dev = sum(splits[i["id"]]["split"] == "dev" for i in cat_items if i["id"] in splits)
+            n_done = sum(i["id"] in splits for i in cat_items)
+            # dev while below target share of the items assigned so far (+1 for this one)
+            split = "dev" if n_dev < round(DEV_FRACTION * (n_done + 1)) else "test"
+            splits[item["id"]] = {"split": split, "fingerprint": _fingerprint(item)}
+
+    orphans = sorted(set(frozen) - set(splits))
+    if orphans:
+        print(f"WARNING: items removed since last split: {orphans}")
+    return dict(sorted(splits.items()))
+
+
 def build():
-    lines = []
+    items = []
     counters = {}
     for cat, difficulty, question, gold, *rest in ITEMS:
         counters[cat] = counters.get(cat, 0) + 1
@@ -180,9 +231,16 @@ def build():
                 "gold_sql": gold + ";" if gold else None}
         if rest and rest[0]:
             item["ordered"] = True
-        lines.append(json.dumps(item))
-    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote {len(lines)} items to {OUT}")
+        items.append(item)
+
+    splits = assign_splits(items)
+    for item in items:
+        item["split"] = splits[item["id"]]["split"]
+
+    OUT.write_text("\n".join(json.dumps(i) for i in items) + "\n", encoding="utf-8")
+    SPLITS.write_text(json.dumps(splits, indent=1) + "\n", encoding="utf-8")
+    n_dev = sum(i["split"] == "dev" for i in items)
+    print(f"Wrote {len(items)} items to {OUT} ({n_dev} dev / {len(items) - n_dev} test)")
 
 
 if __name__ == "__main__":

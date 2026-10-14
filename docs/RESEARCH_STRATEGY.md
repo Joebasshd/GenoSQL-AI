@@ -115,6 +115,21 @@ no RAG, no repair. "Full" = semantic layer + 3 verified examples + up to 2 repai
   v0 ran with the schema-wide column check; the table-aware guard (clear "column X exists only in table Y — join it"
   repair hints) was added afterwards and should help joins on the next run.
 
+### Dev/test protocol (from 2026-10-14)
+
+- Split frozen in `eval/splits.json`: 23 dev / 35 test (21 / 31 answerable), stratified by category, seeded.
+  Existing assignments never move; new items (appended at the end of `ITEMS`) are assigned to keep each
+  category near 40 % dev. Edited questions keep their split and print a warning.
+- Iterate on prompts, schema notes and seed examples using **dev only** (`run_eval` defaults to dev).
+  Run **test** once per frozen configuration, for reporting; no changes in response to individual test items.
+- Seed examples must not paraphrase any benchmark item, dev or test.
+- **Disclosure (for the paper):** before the split existed, the v0 failure lists for all 58 items were
+  inspected; the two failure *patterns* observed (ClinVar-join over-abstention in 3B; invented tables/columns
+  in 1.5B) are therefore known for test items too. Fixes must be motivated and checked on dev items, and the
+  paper should report this. Growing the benchmark with fresh, unseen test items (Phase 2) removes the issue.
+- v0 per split: 3B full 71.4 % dev vs 54.8 % test — dev happens to be easier; with n = 21/31 that gap is within
+  chance, so judge dev improvements by paired comparisons on dev, not against the test number.
+
 ## 4. Roadmap
 
 ### Phase 1 — Data breadth (1–2 weeks)
