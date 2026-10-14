@@ -2,11 +2,8 @@ fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
-asyncpg
-pandas
-vcfpy
-sentence-transformers
-pgvector
+httpx
 python-dotenv
-ollama
-sqlparse
+sqlglot
+sentence-transformers
+pytest

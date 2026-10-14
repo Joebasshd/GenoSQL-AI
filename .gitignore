@@ -2,5 +2,7 @@
 .venv
 __pycache__
 *.pyc
-data/chr22.vcf.gz
+data/*.vcf.gz
+data/*.tbi
 .vscode/
+.pytest_cache/

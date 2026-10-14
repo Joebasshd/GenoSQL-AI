@@ -1,260 +1,139 @@
-import re
-import sqlparse
-import ollama
-from app.rag.retriever import retrieve_similar_examples
-from app.rag.example_store import store_example
-
-MODEL = "qwen2.5-coder:7b"
-
-SCHEMA = """
-Database: Genomic Variants
-
-Table: variants
-
-Columns (use these EXACT names — no abbreviations):
-- id (SERIAL): primary key
-- chrom (TEXT): chromosome identifier
-- pos (INTEGER): genomic position
-- variant_id (TEXT): variant identifier
-- ref (TEXT): reference allele
-- alt (TEXT): alternate allele
-- quality (FLOAT): variant quality score  ← NOT "qual"
-- filter (TEXT): filter status
-- info (JSONB): additional info
 """
+NL → SQL pipeline:
 
-ALLOWED_COLUMNS = {
-    "id", "chrom", "pos", "variant_id", "ref", "alt",
-    "quality", "filter", "info",
-}
+    question ─► retrieve verified examples (RAG) ─► LLM ─► clean ─► guard ─► execute
+                                                    ▲                │         │
+                                                    └── repair ◄─────┴─────────┘
+                                                       (guard / DB error fed back)
 
-SYSTEM_PROMPT = f"""
-You are a bioinformatics SQL expert.
+Each stage can be switched off via PipelineConfig, which is what the
+evaluation harness uses for ablations.
+"""
+import re
+import time
+from dataclasses import dataclass, field
 
-Your job is to convert natural language questions into PostgreSQL queries.
+import psycopg2
+
+from app import config
+from app.database import run_readonly
+from app.nl_query.llm import chat
+from app.nl_query.schema import schema_prompt
+from app.nl_query.sql_guard import clean_sql, validate_sql
+from app.rag.retriever import retrieve_similar_examples
+
+ABSTAIN_MARKER = "CANNOT_ANSWER"
+
+
+@dataclass
+class PipelineConfig:
+    model: str = field(default_factory=lambda: config.LLM_MODEL)
+    backend: str = field(default_factory=lambda: config.LLM_BACKEND)
+    use_rag: bool = True
+    semantic_schema: bool = True        # column descriptions + domain notes
+    max_repairs: int = field(default_factory=lambda: config.MAX_REPAIR_ATTEMPTS)
+    allow_abstain: bool = True
+    rag_k: int = field(default_factory=lambda: config.RAG_K)
+    max_rows: int = field(default_factory=lambda: config.MAX_ROWS)
+
+
+def system_prompt(cfg: PipelineConfig) -> str:
+    abstain = (
+        f"\n- If the question cannot be answered from this schema, reply exactly:\n"
+        f"  {ABSTAIN_MARKER}: <one-sentence reason>"
+        if cfg.allow_abstain else ""
+    )
+    return f"""You are a bioinformatics SQL expert. Convert questions about genomic variant data into a single PostgreSQL SELECT query.
 
 Database schema:
-{SCHEMA}
+{schema_prompt(cfg.semantic_schema)}
 
 Rules:
-- Only return SQL
-- Do not explain anything
-- Do not include markdown
-- Use valid PostgreSQL syntax
-- Only query the variants table
-- Use EXACT column names from the schema above (e.g. "quality", never "qual")
-"""
-
-BLOCKED_KEYWORDS = [
-    "DROP", "DELETE", "TRUNCATE", "ALTER", "INSERT",
-    "UPDATE", "CREATE", "GRANT", "REVOKE", "EXEC",
-    "EXECUTE", "INTO OUTFILE", "LOAD_FILE", "COPY",
-]
-
-ALLOWED_TABLES = {"variants"}
+- Return only the SQL query: no explanation, no markdown.
+- Use only the tables and columns listed above, with their exact names.
+- Return the columns that answer the question; for listings include chrom, pos, ref, alt.{abstain}"""
 
 
-# SQL Cleaner 
-def clean_sql(raw: str) -> str:
+def build_user_prompt(question: str, examples: list) -> str:
+    if not examples:
+        return f"Question: {question}"
+    shots = "\n\n".join(f"Question: {q}\nSQL: {s}" for q, s, *_ in examples)
+    return f"Examples of correct queries for similar questions:\n\n{shots}\n\nQuestion: {question}"
+
+
+def _abstain_reason(text: str) -> str | None:
+    m = re.search(rf"{ABSTAIN_MARKER}\s*:?\s*(.*)", text, flags=re.IGNORECASE)
+    if m and not re.search(r"\bSELECT\b", text[: m.start()], flags=re.IGNORECASE):
+        return m.group(1).strip() or "Not answerable from the available data."
+    return None
+
+
+def answer_question(question: str, cfg: PipelineConfig | None = None, execute: bool = True,
+                    exclude_question: str | None = None) -> dict:
     """
-    Strips markdown fences, inline comments, and leading/trailing
-    whitespace from LLM-generated SQL output.
+    Run the full pipeline. Returns a dict with status in
+    {ok, invalid, db_error, abstained, llm_error}.
     """
-    sql = raw.strip()
-
-    # Strip markdown code fences (```sql ... ``` or ``` ... ```)
-    sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
-    sql = re.sub(r"\s*```$", "", sql)
-
-    # Remove SQL single-line comments (-- ...)
-    sql = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
-
-    # Remove SQL block comments (/* ... */)
-    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
-
-    # Collapse extra whitespace into single spaces
-    sql = re.sub(r"\s+", " ", sql).strip()
-
-    # Ensure it ends with a semicolon
-    if sql and not sql.endswith(";"):
-        sql += ";"
-
-    return sql
-
-
-# SQL Guard
-
-def validate_sql(sql: str) -> tuple[bool, str]:
-    """
-    Validates that the SQL is safe to execute.
-    Returns (is_valid, reason).
-    """
-    upper = sql.upper()
-
-    # Must be a SELECT statement
-    if not upper.lstrip().startswith("SELECT"):
-        return False, "Only SELECT queries are allowed."
-    
-    # Prevent multiple SQL statements
-    if sql.count(";") > 1:
-        return False, "Multiple SQL statements are not allowed."
-
-    # Block dangerous keywords
-    for keyword in BLOCKED_KEYWORDS:
-        # Word-boundary match to avoid false positives
-        # e.g. "DELETION" shouldn't trigger "DELETE"
-        pattern = rf"\b{keyword}\b"
-        if re.search(pattern, upper):
-            return False, f"Blocked: query contains '{keyword}'."
-
-    # Check that only allowed tables are referenced
-    # Simple FROM / JOIN clause extraction
-    table_refs = re.findall(
-        r"\bFROM\s+(\w+)|\bJOIN\s+(\w+)",
-        upper
-    )
-    referenced_tables = {
-        t.lower() for pair in table_refs for t in pair if t
+    cfg = cfg or PipelineConfig()
+    started = time.perf_counter()
+    out = {
+        "question": question, "sql": None, "status": None, "error": None,
+        "attempts": 0, "examples_used": 0, "columns": [], "rows": [], "truncated": False,
+        "model": cfg.model, "prompt_tokens": 0, "output_tokens": 0, "llm_ms": 0,
+        "trace": [],
     }
 
-    disallowed = referenced_tables - ALLOWED_TABLES
-    if disallowed:
-        return False, f"Blocked: references unauthorized table(s): {disallowed}"
+    examples = []
+    if cfg.use_rag:
+        examples = retrieve_similar_examples(question, k=cfg.rag_k, exclude_question=exclude_question)
+    out["examples_used"] = len(examples)
 
-    return True, "OK"
+    messages = [
+        {"role": "system", "content": system_prompt(cfg)},
+        {"role": "user", "content": build_user_prompt(question, examples)},
+    ]
 
+    for attempt in range(cfg.max_repairs + 1):
+        out["attempts"] = attempt + 1
+        try:
+            resp = chat(messages, model=cfg.model, backend=cfg.backend)
+        except Exception as e:  # network / model not pulled / server down
+            out.update(status="llm_error", error=f"LLM call failed: {e}")
+            break
+        out["prompt_tokens"] += resp.prompt_tokens or 0
+        out["output_tokens"] += resp.output_tokens or 0
+        out["llm_ms"] += resp.latency_ms
 
-def validate_columns(sql: str) -> tuple[bool, str]:
-    """
-    Parses the SQL and checks that every column reference exists in
-    ALLOWED_COLUMNS.  Returns (is_valid, reason).
-    """
-    try:
-        parsed = sqlparse.parse(sql)
-        if not parsed:
-            return False, "Could not parse SQL."
+        reason = _abstain_reason(resp.text) if cfg.allow_abstain else None
+        if reason:
+            out.update(status="abstained", error=reason, sql=None)
+            out["trace"].append({"attempt": attempt + 1, "abstained": reason})
+            break
 
-        stmt = parsed[0]
-        tokens = list(stmt.flatten())
+        sql = clean_sql(resp.text)
+        out["sql"] = sql
+        ok, problem = validate_sql(sql)
+        status = "invalid"
 
-        # Collect identifier-like tokens that sit next to keywords
-        # (SELECT list, WHERE, ORDER BY, GROUP BY, etc.)
-        identifiers: set[str] = set()
-        for tok in tokens:
-            # sqlparse token types: Name is a plain identifier
-            if tok.ttype is sqlparse.tokens.Name:
-                identifiers.add(tok.value.lower())
+        if ok and execute:
+            try:
+                result = run_readonly(sql, max_rows=cfg.max_rows)
+                out.update(status="ok", error=None, **result)
+                out["trace"].append({"attempt": attempt + 1, "sql": sql, "ok": True})
+                break
+            except psycopg2.Error as e:
+                problem = (e.pgerror or str(e)).strip().splitlines()[0]
+                status = "db_error"
+        elif ok:
+            out.update(status="ok", error=None)
+            break
 
-        # Remove table names and SQL functions from the set
-        identifiers -= ALLOWED_TABLES
-        # Common SQL aggregate / function names that are not columns
-        sql_functions = {
-            "count", "sum", "avg", "min", "max", "coalesce",
-            "now", "lower", "upper", "length", "distinct",
-        }
-        identifiers -= sql_functions
+        out.update(status=status, error=problem)
+        out["trace"].append({"attempt": attempt + 1, "sql": sql, "error": problem})
+        messages += [
+            {"role": "assistant", "content": resp.text},
+            {"role": "user", "content": f"That query failed: {problem}\nReturn a corrected SQL query only."},
+        ]
 
-        bad = identifiers - ALLOWED_COLUMNS
-        if bad:
-            return False, f"Unknown column(s): {bad}. Valid columns are: {ALLOWED_COLUMNS}"
-
-        return True, "OK"
-
-    except Exception as exc:
-        return False, f"Column validation error: {exc}"
-
-def enforce_limit(sql: str, limit: int = 50) -> str:
-
-    upper = sql.upper()
-
-    if "LIMIT" not in upper:
-        sql = sql.rstrip(";") + f" LIMIT {limit};"
-
-    return sql
-
-def build_prompt(question: str, examples: list) -> str:
-    """
-    Builds the user-facing prompt that gets sent to Ollama.
-
-    If we have similar past examples, we inject them here as
-    few-shot demonstrations. The LLM sees real (question → SQL)
-    pairs and uses them as a pattern to follow.
-
-    If there are no examples yet (cold start — empty sql_examples table),
-    we skip the examples block and just send the bare question.
-    This means the system works fine on day one, before any history exists,
-    and gets progressively smarter as it accumulates examples.
-    """
-    if examples:
-        # Format each example as a clear Q→SQL pair
-        examples_block = "\n\n".join(
-            f"Question: {row[0]}\nSQL: {row[1]}"
-            for row in examples
-        )
-        return f"""Here are some similar questions that were answered correctly:
-
-{examples_block}
-
-Now convert this new question into SQL.
-
-Question:
-{question}"""
-
-    else:
-        # Cold start: no examples yet, just ask directly
-        return f"""Convert the following question into SQL.
-
-Question:
-{question}"""
-
-# Main entry point
-
-def generate_sql(question: str) -> dict:
-    """
-    Full pipeline:
-    1. Retrieve similar past examples from pgvector
-    2. Build an augmented prompt with those examples injected
-    3. Call Ollama to generate SQL
-    4. Clean and validate the SQL
-    5. If valid, store this (question → SQL) pair back into sql_examples
-       so future queries can learn from it
-    """
-
-    # Retrieve similar examples from the vector store.
-    examples = retrieve_similar_examples(question, k=3)
-
-    # Build the prompt, injecting examples if we have any.
-    prompt = build_prompt(question, examples)
-
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ],
-        options={
-            "temperature": 0
-        }
-    )
-
-    raw_sql = response["message"]["content"].strip()
-
-    # Clean and validate
-    sql = clean_sql(raw_sql)
-    is_valid, reason = validate_sql(sql)
-
-    # Second guard: reject unknown column names
-    if is_valid:
-        is_valid, reason = validate_columns(sql)
-
-    if is_valid:
-        sql = enforce_limit(sql)
-        store_example(question, sql)
-
-    return {
-        "sql": sql,
-        "raw": raw_sql,
-        "valid": is_valid,
-        "reason": reason,
-        "examples_used": len(examples)
-    }
+    out["latency_ms"] = int((time.perf_counter() - started) * 1000)
+    return out

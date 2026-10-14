@@ -1,33 +1,44 @@
-import os
+import itertools
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
+from app import config
 
-load_dotenv()
+# Admin engine: ingestion, example memory, query log. Never runs LLM output.
+engine = create_engine(config.admin_url(), pool_pre_ping=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Reader engine: executes LLM-generated SQL as a SELECT-only role.
+# This is the real security boundary; the SQL guard is defence in depth.
+reader_engine = create_engine(config.reader_url(), pool_pre_ping=True)
 
-# Create the database engine
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True
-)
-
-# Session factory
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
+_cursor_ids = itertools.count()
 
 
-def get_db():
+def run_readonly(sql: str, max_rows: int = config.MAX_ROWS,
+                 timeout_ms: int = config.STATEMENT_TIMEOUT_MS) -> dict:
     """
-    Dependency used by FastAPI routes.
-    Provides a database session and ensures it closes after request.
+    Execute a query in a READ ONLY transaction with a statement timeout,
+    returning at most `max_rows` rows.
+
+    Uses a raw psycopg2 named (server-side) cursor:
+    - rows are streamed, so `SELECT *` over a million rows isn't pulled into memory
+    - DECLARE CURSOR only accepts SELECT/VALUES, one more barrier against writes
+    - executed without parameters, so '%' and ':' in the SQL are taken literally
+    Raises psycopg2.Error on database errors.
     """
-    db = SessionLocal()
+    raw = reader_engine.raw_connection()
     try:
-        yield db
+        with raw.cursor() as setup:
+            setup.execute("SET TRANSACTION READ ONLY")
+            setup.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+        cur = raw.cursor(name=f"genosql_{next(_cursor_ids)}")
+        cur.itersize = max_rows + 1
+        cur.execute(sql)
+        rows = cur.fetchmany(max_rows + 1)
+        columns = [d.name for d in cur.description]
+        cur.close()
     finally:
-        db.close()
+        raw.rollback()
+        raw.close()
+
+    truncated = len(rows) > max_rows
+    return {"columns": columns, "rows": [tuple(r) for r in rows[:max_rows]], "truncated": truncated}

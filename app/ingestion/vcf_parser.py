@@ -1,101 +1,161 @@
-import vcfpy
-import gzip
-import psycopg2
-import os
-import json
-import psycopg2.extras
-from dotenv import load_dotenv
+"""
+Site-level VCF ingestion.
 
-load_dotenv(override=True)
+Reads only the first 8 VCF columns (genotype columns are skipped without
+being parsed, which is what makes a 2,504-sample 1000 Genomes file fast to
+load), splits multi-allelic records into one row per ALT allele, and
+promotes common INFO fields to typed columns.
+"""
+import gzip
+import json
+import time
+
+import psycopg2.extras
+from app.database import engine
 
 BATCH_SIZE = 5000
 
-def ingest_vcf(file_path):
+# INFO keys with Number=A in 1000 Genomes: one value per ALT allele.
+PER_ALT_KEYS = {"AC", "AF", "AFR_AF", "AMR_AF", "EAS_AF", "EUR_AF", "SAS_AF"}
+# INFO keys promoted to columns (not duplicated in the JSONB blob).
+PROMOTED_KEYS = PER_ALT_KEYS | {"AN", "DP", "VT", "SVTYPE", "END", "MULTI_ALLELIC"}
 
-    conn = psycopg2.connect(
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT")
-    )
+INSERT_SQL = """
+    INSERT INTO variants
+        (chrom, pos, end_pos, rsid, ref, alt, variant_type, sv_type, is_multiallelic,
+         quality, filter, ac, an, af, afr_af, amr_af, eas_af, eur_af, sas_af, dp, info)
+    VALUES %s
+    ON CONFLICT (chrom, pos, ref, alt) DO NOTHING
+"""
 
-    conn.autocommit = False
-    cursor = conn.cursor()
 
-    reader = vcfpy.Reader.from_stream(
-        gzip.open(file_path, "rt")
-    )
+def _num(value: str):
+    """Parse a VCF scalar: int, float, or leave as string."""
+    if value in (".", ""):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return value
 
-    total_seen = 0
-    total_inserted = 0
+
+def parse_info(field: str) -> dict:
+    """Parse 'K=V;K2=V2,V3;FLAG' into {K: [V], K2: [V2, V3], FLAG: True}."""
+    info = {}
+    if field in (".", ""):
+        return info
+    for item in field.split(";"):
+        if "=" in item:
+            key, value = item.split("=", 1)
+            info[key] = [_num(v) for v in value.split(",")]
+        else:
+            info[item] = True
+    return info
+
+
+def _pick(values, i):
+    """Value i of a per-allele list (None if missing)."""
+    if not isinstance(values, list) or i >= len(values):
+        return None
+    return values[i]
+
+
+def _first(values):
+    return values[0] if isinstance(values, list) and values else None
+
+
+def classify(ref: str, alt: str, sv_type) -> str:
+    """
+    Per-allele variant class. INFO VT can't be used for this: on multi-allelic
+    records it lists the types present at the site, not in ALT order
+    (e.g. ALT=AT,T with VT=SNP,INDEL).
+    """
+    if sv_type or alt.startswith("<"):
+        return "SV"
+    if len(ref) == 1 and len(alt) == 1:
+        return "SNP"
+    if len(ref) == len(alt):
+        return "MNP"
+    return "INDEL"
+
+
+def parse_line(line: str) -> list[tuple]:
+    """Turn one VCF data line into one row tuple per ALT allele."""
+    chrom, pos, vid, ref, alts, qual, filt, info_field = line.rstrip("\n").split("\t", 8)[:8]
+    pos = int(pos)
+    alt_list = alts.split(",")
+    info = parse_info(info_field)
+    multi = len(alt_list) > 1 or "MULTI_ALLELIC" in info
+
+    end = _first(info.get("END"))
+    end_pos = int(end) if isinstance(end, int) else pos + len(ref) - 1
+    rsid = None if vid == "." else vid
+    quality = _num(qual)
+    filt = None if filt == "." else filt
+    sv_type = _first(info.get("SVTYPE"))
+    an = _first(info.get("AN"))
+    dp = _first(info.get("DP"))
+
+    extra = {k: (v[0] if isinstance(v, list) and len(v) == 1 else v)
+             for k, v in info.items() if k not in PROMOTED_KEYS}
+    extra_json = json.dumps(extra) if extra else None
+
+    rows = []
+    for i, alt in enumerate(alt_list):
+        rows.append((
+            chrom, pos, end_pos, rsid, ref, alt, classify(ref, alt, sv_type), sv_type, multi,
+            quality, filt,
+            _pick(info.get("AC"), i), an, _pick(info.get("AF"), i),
+            _pick(info.get("AFR_AF"), i), _pick(info.get("AMR_AF"), i),
+            _pick(info.get("EAS_AF"), i), _pick(info.get("EUR_AF"), i),
+            _pick(info.get("SAS_AF"), i), dp, extra_json,
+        ))
+    return rows
+
+
+def _open(file_path: str):
+    if file_path.endswith((".gz", ".bgz")):
+        return gzip.open(file_path, "rt")
+    return open(file_path, "rt")
+
+
+def ingest_vcf(file_path: str, limit: int | None = None):
+    """Stream a VCF into the variants table. `limit` caps the number of records (for tests)."""
+    raw = engine.raw_connection()
+    cursor = raw.cursor()
+    started = time.time()
+    seen = rows_inserted = 0
     batch = []
 
-    for record in reader:
+    def flush():
+        nonlocal rows_inserted
+        psycopg2.extras.execute_values(cursor, INSERT_SQL, batch, page_size=len(batch))
+        rows_inserted += cursor.rowcount
+        raw.commit()
+        batch.clear()
+        rate = seen / max(time.time() - started, 1e-9)
+        print(f"records: {seen:,} | rows inserted: {rows_inserted:,} | {rate:,.0f} records/s")
 
-        chrom = record.CHROM
-        pos = record.POS
-        variant_id = record.ID
-        ref = record.REF
-        alt = ",".join([str(a.value) for a in record.ALT])
-        quality = record.QUAL
-        filt = ",".join(record.FILTER) if record.FILTER else None
-        info = record.INFO
+    try:
+        with _open(file_path) as fh:
+            for line in fh:
+                if line.startswith("#"):
+                    continue
+                batch.extend(parse_line(line))
+                seen += 1
+                if len(batch) >= BATCH_SIZE:
+                    flush()
+                if limit and seen >= limit:
+                    break
+            if batch:
+                flush()
+        cursor.execute("ANALYZE variants")
+        raw.commit()
+    finally:
+        cursor.close()
+        raw.close()
 
-        batch.append((
-            chrom,
-            pos,
-            variant_id,
-            ref,
-            alt,
-            quality,
-            filt,
-            json.dumps(info)
-        ))
-
-        total_seen += 1
-
-        if len(batch) >= BATCH_SIZE:
-            psycopg2.extras.execute_values(
-                cursor,
-                """
-                INSERT INTO variants
-                    (chrom, pos, variant_id, ref, alt, quality, filter, info)
-                VALUES %s
-                ON CONFLICT (chrom, pos, ref, alt) DO NOTHING
-                """,
-                batch,
-                page_size=BATCH_SIZE
-            )
-            conn.commit()
-            # rowcount is reliable here: execute_values with a single page
-            # (page_size >= batch size) sets it correctly after INSERT
-            inserted = cursor.rowcount
-            total_inserted += inserted
-            skipped = len(batch) - inserted
-            print(f"Seen: {total_seen:,} | Inserted: {total_inserted:,} | Skipped (duplicates): {skipped:,}")
-            batch.clear()
-
-    # Flush remaining records
-    if batch:
-        psycopg2.extras.execute_values(
-            cursor,
-            """
-            INSERT INTO variants
-                (chrom, pos, variant_id, ref, alt, quality, filter, info)
-            VALUES %s
-            ON CONFLICT (chrom, pos, ref, alt) DO NOTHING
-            """,
-            batch,
-            page_size=BATCH_SIZE
-        )
-        conn.commit()
-        inserted = cursor.rowcount
-        total_inserted += inserted
-        skipped = len(batch) - inserted
-        print(f"Seen: {total_seen:,} | Inserted: {total_inserted:,} | Skipped (duplicates): {skipped:,}")
-
-    cursor.close()
-    conn.close()
-
-    print(f"\nVCF ingestion completed. Total seen: {total_seen:,} | Total inserted: {total_inserted:,}")
+    print(f"\nDone in {time.time() - started:,.0f}s. Records: {seen:,} | rows inserted: {rows_inserted:,}")

@@ -310,6 +310,37 @@
             color: var(--accent);
         }
 
+        .feedback {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .feedback button {
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 2px 10px;
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border-lit);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .feedback button:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .feedback button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
         /* ── TABLE ── */
         .table-wrap {
             overflow-x: auto;
@@ -535,7 +566,7 @@
                 <div class="panel-label">Query</div>
                 <div class="query-box">
                     <textarea class="query-input" id="queryInput"
-                        placeholder="e.g. variants on chromosome 22 with quality above 30" rows="3"></textarea>
+                        placeholder="e.g. common variants on chr22 that are absent in Europeans but above 10% in Africans" rows="3"></textarea>
                     <div class="query-footer">
                         <span class="hint">↵ Enter to submit</span>
                         <button class="submit-btn" id="submitBtn">RUN →</button>
@@ -573,6 +604,11 @@
                     <div class="results-meta">
                         <div class="panel-label" style="margin:0">Results</div>
                         <div class="row-count" id="rowCount"></div>
+                        <div class="feedback" id="feedback">
+                            <span id="feedbackLabel">Correct?</span>
+                            <button id="feedbackYes">✓ yes</button>
+                            <button id="feedbackNo">✗ no</button>
+                        </div>
                     </div>
                     <div class="table-wrap">
                         <table id="resultsTable">
@@ -600,6 +636,14 @@
 
         // ── STATE ──
         const history = [];   // { question, sql, rowCount }
+        let lastQueryId = null;
+
+        // Everything rendered from the API or the user goes through this
+        function esc(value) {
+            return String(value)
+                .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+        }
 
         // ── ELEMENTS ──
         const queryInput = document.getElementById('queryInput');
@@ -618,15 +662,22 @@
         const historyList = document.getElementById('historyList');
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
+        const feedbackLabel = document.getElementById('feedbackLabel');
+        const feedbackYes = document.getElementById('feedbackYes');
+        const feedbackNo = document.getElementById('feedbackNo');
 
         // ── HEALTH CHECK ──
         // On page load, ping the backend so the status dot reflects real connectivity
         async function checkHealth() {
             try {
-                const res = await fetch(`${API_BASE}/`);
-                if (res.ok) {
+                const res = await fetch(`${API_BASE}/health`);
+                const h = await res.json();
+                if (res.ok && h.db === 'ok' && h.llm === 'ok') {
                     statusDot.classList.add('online');
-                    statusText.textContent = 'connected';
+                    statusText.textContent = `connected · ${h.model}`;
+                } else if (res.ok) {
+                    statusDot.style.background = 'var(--yellow)';
+                    statusText.textContent = h.db !== 'ok' ? `db ${h.db}` : `llm ${h.llm}`;
                 } else {
                     throw new Error();
                 }
@@ -649,7 +700,7 @@
         // ── RENDER TABLE ──
         // Takes the columns array and rows array from the API response
         // and builds an HTML table dynamically
-        function renderTable(results) {
+        function renderTable(results, truncated) {
             if (results.length === 0) {
                 showState('error');
                 errorMsg.textContent = 'Query returned no rows.';
@@ -661,20 +712,23 @@
 
             // Build header row
             tableHead.innerHTML = '<tr>' +
-                columns.map(col => `<th>${col}</th>`).join('') +
+                columns.map(col => `<th>${esc(col)}</th>`).join('') +
                 '</tr>';
 
             // Build data rows
             tableBody.innerHTML = results.map(row =>
                 '<tr>' +
                 columns.map(col => {
-                    const val = row[col] ?? '—';
-                    return `<td>${val}</td>`;
+                    const raw = row[col];
+                    const val = raw === null || raw === undefined ? '—'
+                        : typeof raw === 'object' ? JSON.stringify(raw) : raw;
+                    return `<td>${esc(val)}</td>`;
                 }).join('') +
                 '</tr>'
             ).join('');
 
-            rowCount.innerHTML = `<strong>${results.length}</strong> rows returned`;
+            rowCount.innerHTML = `<strong>${results.length}</strong> rows returned` +
+                (truncated ? ' (truncated)' : '');
             showState('results');
             resultsContainer.classList.add('fade-in');
         }
@@ -690,8 +744,8 @@
             const item = document.createElement('div');
             item.className = 'history-item fade-in';
             item.innerHTML = `
-      <div class="history-q">${question}</div>
-      <div class="history-sql">${sql}</div>
+      <div class="history-q">${esc(question)}</div>
+      <div class="history-sql">${esc(sql ?? '—')}</div>
     `;
 
             // Clicking a history item re-fills the query box
@@ -722,26 +776,38 @@
                     body: JSON.stringify({ question })
                 });
 
-                const data = await res.json();
+                const body = await res.json();
+                // Errors come back as { detail: <same shape as success> }
+                const data = res.ok ? body : (typeof body.detail === 'object' ? body.detail : { error: body.detail });
+                lastQueryId = data.query_id ?? null;
 
                 // Always show the generated SQL, even on error
                 if (data.sql) {
                     sqlCode.textContent = data.sql;
-                    examplesBadge.textContent = `${data.examples_used ?? 0} examples used`;
+                    const repairs = (data.attempts ?? 1) > 1 ? ` · ${data.attempts} attempts` : '';
+                    examplesBadge.textContent = `${data.examples_used ?? 0} examples used${repairs}`;
                     examplesBadge.className = data.examples_used > 0 ? 'badge' : 'badge warn';
                     sqlDisplay.classList.add('visible');
                 }
 
+                if (data.status === 'abstained') {
+                    showState('error');
+                    errorMsg.classList.remove('error');
+                    errorMsg.textContent = `Can't answer this from the available data: ${data.error}`;
+                    addToHistory(question, null, 0);
+                    return;
+                }
+
                 if (!res.ok) {
-                    // The backend returned a 400 — invalid SQL
                     showState('error');
                     errorMsg.classList.add('error');
-                    errorMsg.textContent = data.detail?.error || 'Query failed.';
+                    errorMsg.textContent = data.error || 'Query failed.';
                     return;
                 }
 
                 // Render results and update history
-                renderTable(data.results);
+                resetFeedback();
+                renderTable(data.results, data.truncated);
                 addToHistory(question, data.sql, data.row_count);
 
             } catch (err) {
@@ -756,6 +822,33 @@
                 loadingBar.classList.remove('visible');
             }
         }
+
+        // ── FEEDBACK ──
+        // A ✓ stores this question → SQL pair as a verified RAG example.
+        function resetFeedback() {
+            feedbackLabel.textContent = 'Correct?';
+            feedbackYes.disabled = feedbackNo.disabled = false;
+        }
+
+        async function sendFeedback(correct) {
+            if (lastQueryId === null) return;
+            feedbackYes.disabled = feedbackNo.disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/feedback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query_id: lastQueryId, correct })
+                });
+                const data = await res.json();
+                feedbackLabel.textContent = !res.ok ? 'feedback failed'
+                    : data.stored_example ? 'saved as example' : 'thanks';
+            } catch {
+                feedbackLabel.textContent = 'feedback failed';
+            }
+        }
+
+        feedbackYes.addEventListener('click', () => sendFeedback(true));
+        feedbackNo.addEventListener('click', () => sendFeedback(false));
 
         // ── EVENT LISTENERS ──
         submitBtn.addEventListener('click', runQuery);

@@ -1,0 +1,154 @@
+"""
+Source of truth for eval/benchmark.jsonl (v0). Edit here, then:
+
+    python -m eval.build_benchmark && python -m eval.run_eval --check-gold
+
+Design rules
+- Gold answers are small (counts, aggregates, short listings) so execution
+  comparison is robust; listings return the identifying columns only.
+- Questions avoid paraphrasing scripts/seed_examples.py.
+- `ordered` is set only when the question asks for a ranking.
+- gold_sql = None marks an unanswerable question (correct behaviour: abstain).
+"""
+import json
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent / "benchmark.jsonl"
+
+ITEMS = [
+    # ── lookup ──────────────────────────────────────────────────────────
+    ("lookup", 1, "What alternate alleles are observed at position 16051453 on chromosome 22?",
+     "SELECT alt FROM variants WHERE chrom = '22' AND pos = 16051453"),
+    ("lookup", 1, "What is the European allele frequency of the G>A variant at chr22:23000030?",
+     "SELECT eur_af FROM variants WHERE chrom = '22' AND pos = 23000030 AND ref = 'G' AND alt = 'A'"),
+    ("lookup", 1, "Give the alternate allele count and total allele number for the variant at 22:16050115.",
+     "SELECT ac, an FROM variants WHERE chrom = '22' AND pos = 16050115"),
+
+    # ── region ──────────────────────────────────────────────────────────
+    ("region", 1, "How many variants are there between 23,000,000 and 23,100,000 on chr22?",
+     "SELECT COUNT(*) FROM variants WHERE chrom = '22' AND pos BETWEEN 23000000 AND 23100000"),
+    ("region", 2, "List the indels between positions 23,000,000 and 23,005,000 on chromosome 22.",
+     "SELECT pos, ref, alt FROM variants WHERE chrom = '22' AND variant_type = 'INDEL' "
+     "AND pos BETWEEN 23000000 AND 23005000"),
+    ("region", 3, "How many structural variants overlap the interval 22:23,000,000-23,100,000?",
+     "SELECT COUNT(*) FROM variants WHERE chrom = '22' AND variant_type = 'SV' "
+     "AND pos <= 23100000 AND end_pos >= 23000000"),
+    ("region", 2, "How many SNPs are on chr22 between 30 Mb and 31 Mb?",
+     "SELECT COUNT(*) FROM variants WHERE chrom = '22' AND variant_type = 'SNP' "
+     "AND pos BETWEEN 30000000 AND 31000000"),
+
+    # ── aggregation ─────────────────────────────────────────────────────
+    ("aggregation", 1, "How many distinct positions on chromosome 22 have at least one variant?",
+     "SELECT COUNT(DISTINCT pos) FROM variants WHERE chrom = '22'"),
+    ("aggregation", 1, "What is the average global allele frequency of indels?",
+     "SELECT AVG(af) FROM variants WHERE variant_type = 'INDEL'"),
+    ("aggregation", 2, "How many structural variants are there of each SV type?",
+     "SELECT sv_type, COUNT(*) FROM variants WHERE variant_type = 'SV' GROUP BY sv_type"),
+    ("aggregation", 3, "What fraction of SNPs are transitions?",
+     "SELECT AVG(CASE WHEN (ref, alt) IN (('A','G'),('G','A'),('C','T'),('T','C')) THEN 1.0 ELSE 0.0 END) "
+     "FROM variants WHERE variant_type = 'SNP'"),
+    ("aggregation", 2, "How many variants have a total read depth above 30,000?",
+     "SELECT COUNT(*) FROM variants WHERE dp > 30000"),
+
+    # ── frequency (tests the semantic layer's definitions) ──────────────
+    ("frequency", 1, "How many singletons are there?",
+     "SELECT COUNT(*) FROM variants WHERE ac = 1"),
+    ("frequency", 1, "How many common variants are there?",
+     "SELECT COUNT(*) FROM variants WHERE af >= 0.05"),
+    ("frequency", 1, "How many variants have an alternate allele frequency above 99%?",
+     "SELECT COUNT(*) FROM variants WHERE af > 0.99"),
+    ("frequency", 2, "How many rare variants are there?",
+     "SELECT COUNT(*) FROM variants WHERE af < 0.01"),
+    ("frequency", 2, "How many low-frequency variants are there?",
+     "SELECT COUNT(*) FROM variants WHERE af >= 0.01 AND af < 0.05"),
+
+    # ── population ──────────────────────────────────────────────────────
+    ("population", 2, "How many variants are private to African populations?",
+     "SELECT COUNT(*) FROM variants WHERE afr_af > 0 AND amr_af = 0 AND eas_af = 0 "
+     "AND eur_af = 0 AND sas_af = 0"),
+    ("population", 2, "How many variants are found only in Europeans?",
+     "SELECT COUNT(*) FROM variants WHERE eur_af > 0 AND afr_af = 0 AND amr_af = 0 "
+     "AND eas_af = 0 AND sas_af = 0"),
+    ("population", 2, "Which 3 variants are most strongly enriched in East Asians relative to Europeans?",
+     "SELECT pos, ref, alt FROM variants ORDER BY eas_af - eur_af DESC LIMIT 3", True),
+    ("population", 2, "How many variants are common in Africans (frequency at least 5%) but absent from Europeans?",
+     "SELECT COUNT(*) FROM variants WHERE afr_af >= 0.05 AND eur_af = 0"),
+    ("population", 2, "What is the mean South Asian allele frequency among variants absent in East Asians?",
+     "SELECT AVG(sas_af) FROM variants WHERE eas_af = 0"),
+    ("population", 2, "How many variants are polymorphic in all five continental populations?",
+     "SELECT COUNT(*) FROM variants WHERE afr_af > 0 AND amr_af > 0 AND eas_af > 0 "
+     "AND eur_af > 0 AND sas_af > 0"),
+    ("population", 3, "Among variants with frequency above 50% in Africans, what proportion also exceed 50% in Europeans?",
+     "SELECT AVG(CASE WHEN eur_af > 0.5 THEN 1.0 ELSE 0.0 END) FROM variants WHERE afr_af > 0.5"),
+    ("population", 3, "How many variants differ in frequency by more than 0.5 between Africans and Europeans, in either direction?",
+     "SELECT COUNT(*) FROM variants WHERE ABS(afr_af - eur_af) > 0.5"),
+
+    # ── structural variants ─────────────────────────────────────────────
+    ("sv", 2, "What is the longest deletion structural variant? Give its start, end and length.",
+     "SELECT pos, end_pos, end_pos - pos + 1 FROM variants WHERE variant_type = 'SV' AND sv_type = 'DEL' "
+     "ORDER BY end_pos - pos DESC LIMIT 1"),
+    ("sv", 1, "How many Alu insertions are there?",
+     "SELECT COUNT(*) FROM variants WHERE sv_type = 'ALU'"),
+    ("sv", 2, "How many structural variants are longer than 100 kb?",
+     "SELECT COUNT(*) FROM variants WHERE variant_type = 'SV' AND end_pos - pos + 1 > 100000"),
+    ("sv", 2, "How many copy-number variant alleles have a frequency above 1%?",
+     "SELECT COUNT(*) FROM variants WHERE sv_type = 'CNV' AND af > 0.01"),
+
+    # ── indels ──────────────────────────────────────────────────────────
+    ("indel", 1, "How many insertions are there?",
+     "SELECT COUNT(*) FROM variants WHERE variant_type = 'INDEL' AND length(alt) > length(ref)"),
+    ("indel", 2, "What is the length in bases of the longest insertion?",
+     "SELECT MAX(length(alt) - length(ref)) FROM variants WHERE variant_type = 'INDEL'"),
+    ("indel", 2, "How many deletions of 10 or more bases are there?",
+     "SELECT COUNT(*) FROM variants WHERE variant_type = 'INDEL' AND length(ref) - length(alt) >= 10"),
+
+    # ── JSONB / INFO ────────────────────────────────────────────────────
+    ("json", 2, "How many variants lie within the exome capture target?",
+     "SELECT COUNT(*) FROM variants WHERE info ? 'EX_TARGET'"),
+    ("json", 3, "For how many SNPs is the high-confidence ancestral allele the alternate allele?",
+     "SELECT COUNT(*) FROM variants WHERE variant_type = 'SNP' AND split_part(info->>'AA', '|', 1) = alt"),
+    ("json", 2, "How many variant rows come from multi-allelic sites?",
+     "SELECT COUNT(*) FROM variants WHERE is_multiallelic"),
+
+    # ── multi-step ──────────────────────────────────────────────────────
+    ("multistep", 3, "Which 1-Mb window of chr22 contains the most singletons? Give the window start position and the count.",
+     "SELECT (pos / 1000000) * 1000000, COUNT(*) FROM variants WHERE ac = 1 "
+     "GROUP BY pos / 1000000 ORDER BY COUNT(*) DESC LIMIT 1"),
+    ("multistep", 3, "For each variant type, what percentage of its variants are rare? Round to one decimal place.",
+     "SELECT variant_type, ROUND(100.0 * AVG(CASE WHEN af < 0.01 THEN 1 ELSE 0 END), 1) "
+     "FROM variants GROUP BY variant_type"),
+    ("multistep", 3, "Which super-population has the most private variants, and how many?",
+     "SELECT pop, n FROM (SELECT 'AFR' AS pop, COUNT(*) AS n FROM variants WHERE afr_af > 0 AND amr_af = 0 AND eas_af = 0 AND eur_af = 0 AND sas_af = 0 "
+     "UNION ALL SELECT 'AMR', COUNT(*) FROM variants WHERE amr_af > 0 AND afr_af = 0 AND eas_af = 0 AND eur_af = 0 AND sas_af = 0 "
+     "UNION ALL SELECT 'EAS', COUNT(*) FROM variants WHERE eas_af > 0 AND afr_af = 0 AND amr_af = 0 AND eur_af = 0 AND sas_af = 0 "
+     "UNION ALL SELECT 'EUR', COUNT(*) FROM variants WHERE eur_af > 0 AND afr_af = 0 AND amr_af = 0 AND eas_af = 0 AND sas_af = 0 "
+     "UNION ALL SELECT 'SAS', COUNT(*) FROM variants WHERE sas_af > 0 AND afr_af = 0 AND amr_af = 0 AND eas_af = 0 AND eur_af = 0) t "
+     "ORDER BY n DESC LIMIT 1"),
+
+    # ── unanswerable (correct behaviour: abstain) ───────────────────────
+    ("unanswerable", 2, "Which variants fall in the APOL1 gene?", None),
+    ("unanswerable", 2, "What is the allele frequency of rs4680?", None),
+    ("unanswerable", 1, "List the pathogenic variants on chromosome 22.", None),
+    ("unanswerable", 2, "How many individuals carry the variant at 22:23000030?", None),
+    ("unanswerable", 2, "What is the allele frequency of the variant at 22:23000030 in the Yoruba (YRI) population?", None),
+    ("unanswerable", 1, "Show variants associated with schizophrenia.", None),
+]
+
+
+def build():
+    lines = []
+    counters = {}
+    for cat, difficulty, question, gold, *rest in ITEMS:
+        counters[cat] = counters.get(cat, 0) + 1
+        item = {"id": f"{cat[:3].upper()}{counters[cat]:02d}", "category": cat,
+                "difficulty": difficulty, "question": question,
+                "gold_sql": gold + ";" if gold else None}
+        if rest and rest[0]:
+            item["ordered"] = True
+        lines.append(json.dumps(item))
+    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote {len(lines)} items to {OUT}")
+
+
+if __name__ == "__main__":
+    build()
