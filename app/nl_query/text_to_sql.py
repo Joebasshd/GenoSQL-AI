@@ -37,9 +37,12 @@ class PipelineConfig:
     routing_rules: bool = True          # answer-shape / table-routing / abstention guidance
     value_check: bool = True            # guard rejects unknown category values
     max_repairs: int = field(default_factory=lambda: config.MAX_REPAIR_ATTEMPTS)
-    allow_abstain: bool = True
+    # Abstention. Dev results (docs/RESEARCH_STRATEGY.md): offering small models a
+    # "CANNOT_ANSWER" option makes them refuse answerable questions; declining only
+    # when every attempt needs non-existent schema (grounded) was best for 3B.
+    allow_abstain: bool = False         # tell the model it may reply CANNOT_ANSWER
     verify_abstain: bool = True         # challenge a first CANNOT_ANSWER once before accepting it
-    grounded_abstain: bool = False      # decline when every attempt needs tables/columns that don't exist
+    grounded_abstain: bool = True       # decline when every attempt needs tables/columns that don't exist
     rag_k: int = field(default_factory=lambda: config.RAG_K)
     max_rows: int = field(default_factory=lambda: config.MAX_ROWS)
 
@@ -71,7 +74,10 @@ def build_user_prompt(question: str, examples: list) -> str:
 def _abstain_reason(text: str) -> str | None:
     m = re.search(rf"{ABSTAIN_MARKER}\s*:?\s*(.*)", text, flags=re.IGNORECASE)
     if m and not re.search(r"\bSELECT\b", text[: m.start()], flags=re.IGNORECASE):
-        return m.group(1).strip() or "Not answerable from the available data."
+        reason = m.group(1).strip().rstrip(";").strip()
+        if not reason or reason.startswith("<"):   # empty, or the prompt's placeholder echoed back
+            return "The model judged that the database does not contain this information."
+        return reason
     return None
 
 
@@ -112,7 +118,9 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
         out["output_tokens"] += resp.output_tokens or 0
         out["llm_ms"] += resp.latency_ms
 
-        reason = _abstain_reason(resp.text) if cfg.allow_abstain else None
+        # Honour the marker even when it wasn't offered (allow_abstain=False):
+        # models sometimes decline spontaneously, and the text is not SQL anyway.
+        reason = _abstain_reason(resp.text)
         if reason and cfg.verify_abstain and not challenged and attempt < cfg.max_repairs:
             # Small models give up on answerable questions with false claims
             # ("no populations table"). Make them check once; accept a second refusal.
@@ -161,8 +169,9 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
             and (out["error"] or "").startswith(SCHEMA_MISS_PREFIXES)):
         # The model could only express the question with data that isn't in the
         # database: decline, naming what is missing (deterministic, schema-grounded).
+        missing = out["error"].split(". ")[0].split(" for ")[0]    # e.g. "Unknown column 'yri_af'"
         out.update(status="abstained", sql=None,
-                   error=f"This needs data that isn't in the database. {out['error']}")
+                   error=f"This needs data that isn't in the database ({missing}).")
 
     out["latency_ms"] = int((time.perf_counter() - started) * 1000)
     return out

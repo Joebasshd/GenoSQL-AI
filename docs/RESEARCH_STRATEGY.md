@@ -125,6 +125,61 @@ no RAG, no repair. "Full" = semantic layer + 3 verified examples + up to 2 repai
 - v0 per split: 3B full 71.4 % dev vs 54.8 % test — dev happens to be easier; with n = 21/31 that gap is within
   chance, so judge dev improvements by paired comparisons on dev, not against the test number.
 
+### Dev iteration on joins and abstention (benchmark v1, dev split, 2026-10-14)
+
+All runs on the same v1 schema (Phase 1 tables) and the 30-item dev split (27 answerable + 3 unanswerable).
+Each fix is a switch in `PipelineConfig` / `run_eval` so it can be ablated.
+
+| dev config | 1.5B EX | 3B EX | 3B correct declines | 3B false declines | 3B silent wrong |
+|---|---|---|---|---|---|
+| semantic + RAG + repair, self-abstain (pre-fix) | 48.1 % | 66.7 % | 2/3 | 5 | 17 % |
+| + routing rules + category-value check | 63.0 % | 59.3 % | 2/3 | 6 | 20 % |
+| + hide always-NULL `variants.rsid`, challenge-once abstention | 59.3 % | 70.4 % | 2/3 | 5 | 13 % |
+| **grounded abstention instead of self-abstain (final default)** | 55.6 % | **81.5 %** | 2/3 | **1** | 17 % |
+
+What we learned (candidate paper findings):
+1. **Offering small models a refusal option makes them refuse answerable questions.** 3B declined 5–6 answerable
+   items with confidently false reasons ("no populations table" when `populations` exists; it even cited the note
+   "rsIDs are in clinvar.rsid" as a reason to refuse). Asking it to re-check (challenge-once) did not help: it
+   refused again. Removing the explicit refusal format (keeping only a last-resort mention in the routing rules)
+   and declining when every attempt needs non-existent tables/columns cut false declines 5 → 1 and raised 3B to
+   81.5 % (vs 66.7 %, p = 0.22; vs routing+value-check 59.3 %, 0/6 wins/losses, p = 0.031).
+2. **Grounded abstention depends on how a model fails.** 1.5B hallucinates schema on unanswerable questions
+   (`yri_af`, `individuals`, `gnomad_variants`), so grounding catches it (0/3 → 2/3 declines). 3B instead writes
+   *valid* but wrong SQL for some unanswerables (e.g. global `af` for a Yoruba question), which grounding cannot
+   catch — that is the residual silent-wrong risk.
+3. **Don't show the model columns that carry no information.** `variants.rsid` (always NULL) was queried by both
+   models and silently returned nothing; hiding it lets the guard answer "rsid exists only in clinvar — join it".
+4. **Category-value checking** turns silent empty results (`variant_type = 'INS'`, `chrom = 'chr22'`) into
+   repairable errors; its effect is mixed on its own at this sample size.
+- Caveats: n = 27/3 on dev; several comparisons are not significant. The held-out test split is the arbiter.
+  Dev iteration count: 5 configurations per model — report this in the paper.
+
+### Held-out TEST results, benchmark v1 (run once after freezing the dev configuration)
+
+Full tables: [eval/results/SUMMARY_v1.md](../eval/results/SUMMARY_v1.md). Test split: 39 answerable + 4 unanswerable.
+
+| test | EX (relaxed) | correct declines | false declines | silent wrong |
+|---|---|---|---|---|
+| 1.5B bare | 7.7 % | 0/4 | 0 | 49 % |
+| 1.5B full | **56.4 %** | 2/4 | 5 | 33 % |
+| 3B bare | 15.4 % | 0/4 | 0 | 58 % |
+| 3B full | **61.5 %** | 2/4 | 2 | 35 % |
+
+- **Robust finding:** the pipeline (semantic layer + routing + verified RAG + repair + guard) lifts small CPU models
+  from 8–15 % to 56–62 % on held-out questions (21/0 and 21/1 wins/losses, McNemar p < 0.001 for both).
+- **Model size matters less than the pipeline:** 1.5B vs 3B full is not significantly different (4/6, p = 0.75).
+- **Dev gains only partly transferred.** On the 35 test items shared with v0, v1-full vs the v0 pipeline:
+  3B 54.8 % → 61.3 % (4/4, p = 1.0) and correct declines 4/4 → 2/4; 1.5B 48.4 % → 54.8 % (3/7, p = 0.34) and
+  declines 0/4 → 2/4. (Confounded: the schema grew from 2 to 7 tables between v0 and v1.) 3B dev accuracy
+  81.5 % vs test 61.5 % — the expected optimism from iterating on 27 items.
+- **Abstention remains the open problem:** no configuration achieved high coverage *and* reliable declines at
+  1.5–3B. Grounded abstention also misfires on fixable join mistakes (1.5B: 5 false declines on test). About a third
+  of test answers are still silently wrong — the main argument for the verification UI (show SQL, ✓/✗) and for
+  reporting silent-wrong rates in any NL→SQL paper.
+- Next for the paper: grow the benchmark (Phase 2) so the test split is large enough to separate configurations
+  (current n gives wide intervals), and add fresh test items never inspected during development.
+
 ## 4. Roadmap
 
 ### Phase 1 — Data breadth ✅ (completed 2026-10-14)

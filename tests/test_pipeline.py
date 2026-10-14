@@ -56,3 +56,17 @@ def test_grounded_abstention_ignores_other_invalid_sql(monkeypatch):
     out = answer_question("insertions?", PipelineConfig(allow_abstain=False, grounded_abstain=True, **CFG),
                           execute=False)
     assert out["status"] == "invalid"     # a fixable value error is not "missing data"
+
+
+def test_spontaneous_marker_counts_as_abstention_in_grounded_mode(monkeypatch):
+    stub(monkeypatch, ["CANNOT_ANSWER;", "CANNOT_ANSWER: no age column"])
+    out = answer_question("Age?", PipelineConfig(allow_abstain=False, grounded_abstain=True, **CFG),
+                          execute=False)
+    assert out["status"] == "abstained"
+
+
+def test_placeholder_abstain_reason_replaced():
+    from app.nl_query.text_to_sql import _abstain_reason
+    assert _abstain_reason("CANNOT_ANSWER: <missing information>").startswith("The model judged")
+    assert _abstain_reason("CANNOT_ANSWER;").startswith("The model judged")
+    assert _abstain_reason("CANNOT_ANSWER: no expression data") == "no expression data"

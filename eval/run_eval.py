@@ -116,12 +116,12 @@ def main():
     p.add_argument("--backend")
     p.add_argument("--no-rag", action="store_true")
     p.add_argument("--no-semantic", action="store_true")
-    p.add_argument("--no-abstain", action="store_true")
+    p.add_argument("--self-abstain", action="store_true", help="offer the model a CANNOT_ANSWER reply")
     p.add_argument("--no-routing", action="store_true", help="drop answer-shape/routing rules")
     p.add_argument("--no-value-check", action="store_true", help="guard skips category-value check")
     p.add_argument("--no-verify-abstain", action="store_true", help="accept the first CANNOT_ANSWER")
-    p.add_argument("--grounded-abstain", action="store_true",
-                   help="decline when every attempt needs non-existent tables/columns")
+    p.add_argument("--no-grounded-abstain", action="store_true",
+                   help="don't decline when every attempt needs non-existent tables/columns")
     p.add_argument("--repairs", type=int)
     p.add_argument("--split", choices=["dev", "test", "all"], default="dev",
                    help="dev for iterating (default); test only for reporting")
@@ -145,17 +145,19 @@ def main():
     if args.repairs is not None: cfg.max_repairs = args.repairs
     cfg.use_rag = not args.no_rag
     cfg.semantic_schema = not args.no_semantic
-    cfg.allow_abstain = not args.no_abstain
+    cfg.allow_abstain = args.self_abstain
     cfg.routing_rules = not args.no_routing
     cfg.value_check = not args.no_value_check
     cfg.verify_abstain = not args.no_verify_abstain
-    cfg.grounded_abstain = args.grounded_abstain
+    cfg.grounded_abstain = not args.no_grounded_abstain
 
+    # Suffixes mark departures from the default (full) configuration.
     tag = args.tag or (f"{cfg.model.replace(':', '_').replace('/', '_')}"
                        f"{'' if cfg.use_rag else '_norag'}{'' if cfg.semantic_schema else '_nosem'}"
-                       f"_r{cfg.max_repairs}{'' if cfg.allow_abstain else '_noabstain'}"
+                       f"_r{cfg.max_repairs}"
                        f"{'' if cfg.routing_rules else '_norout'}{'' if cfg.value_check else '_novc'}"
-                       f"{'' if cfg.verify_abstain else '_novabs'}{'_gabs' if cfg.grounded_abstain else ''}"
+                       f"{'_selfabs' if cfg.allow_abstain else ''}{'' if cfg.verify_abstain else '_novabs'}"
+                       f"{'' if cfg.grounded_abstain else '_nogabs'}"
                        f"{'' if args.split == 'all' else '_' + args.split}")
     RESULTS.mkdir(exist_ok=True)
     out_path = RESULTS / f"{tag}.jsonl"
