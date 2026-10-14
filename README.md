@@ -49,7 +49,7 @@ uvicorn app.main:app                    # open http://localhost:8000
 
 ### Choosing a model
 
-Measured on an i5 laptop, 8 GB RAM, CPU only — see [eval/results](eval/results)):
+Measured on an i5 laptop, 8 GB RAM, CPU only — see [eval/results](eval/results):
 
 | Model | RAM needed | Held-out accuracy* | Median time / question | Notes |
 |---|---|---|---|---|
