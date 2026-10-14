@@ -174,12 +174,50 @@ ITEMS = [
      "ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt"),
 
     # ── unanswerable (correct behaviour: abstain) ───────────────────────
-    ("unanswerable", 3, "List every 1000 Genomes variant located within the APOL1 gene, including variants that are not in ClinVar.", None),
+    # UNA01 replaced in v1 (APOL1 coordinates became answerable via `genes`); id and split kept.
+    ("unanswerable", 2, "What does AlphaFold predict about the structural impact of the APOL1 variant rs73885319?", None),
     ("unanswerable", 2, "What is the gnomAD allele frequency of rs4680?", None),
     ("unanswerable", 1, "Which genes on chromosome 22 are most highly expressed in kidney?", None),
     ("unanswerable", 2, "How many individuals carry the variant at 22:23000030?", None),
     ("unanswerable", 2, "What is the allele frequency of the variant at 22:23000030 in the Yoruba (YRI) population?", None),
     ("unanswerable", 2, "Which ClinVar submitters classified rs4680 as benign?", None),
+
+    # ── v1 (Phase 1 tables) — append only ───────────────────────────────
+    ("gene", 2, "How many 1000 Genomes variants fall within the APOL1 gene?",
+     "SELECT COUNT(*) FROM variants v JOIN genes g ON v.pos <= g.end_pos AND v.end_pos >= g.start_pos "
+     "WHERE g.gene_name = 'APOL1'"),
+    ("gene", 1, "How many protein-coding genes are on chromosome 22?",
+     "SELECT COUNT(*) FROM genes WHERE biotype = 'protein_coding'"),
+    ("gene", 3, "Which protein-coding gene contains the most 1000 Genomes variants, and how many?",
+     "SELECT g.gene_name, COUNT(*) FROM variant_genes vg JOIN genes g ON g.gene_id = vg.gene_id "
+     "WHERE g.biotype = 'protein_coding' GROUP BY g.gene_name ORDER BY COUNT(*) DESC LIMIT 1"),
+    ("gene", 1, "What are the start and end coordinates of the COMT gene?",
+     "SELECT start_pos, end_pos FROM genes WHERE gene_name = 'COMT'"),
+    ("gene", 2, "How many rare 1000 Genomes variants are located in CHEK2?",
+     "SELECT COUNT(*) FROM variants v JOIN genes g ON v.pos <= g.end_pos AND v.end_pos >= g.start_pos "
+     "WHERE g.gene_name = 'CHEK2' AND v.af < 0.01"),
+    ("samples", 1, "How many female samples are in the African super-population?",
+     "SELECT COUNT(*) FROM samples WHERE super_population = 'AFR' AND sex = 'female'"),
+    ("samples", 1, "How many individuals are in the Yoruba population?",
+     "SELECT COUNT(*) FROM samples WHERE population = 'YRI'"),
+    ("samples", 1, "How many populations belong to the South Asian super-population?",
+     "SELECT COUNT(*) FROM populations WHERE super_population = 'SAS'"),
+    ("samples", 2, "Which population has the most samples, and how many?",
+     "SELECT population, COUNT(*) FROM samples GROUP BY population ORDER BY COUNT(*) DESC LIMIT 1"),
+    ("carrier", 2, "How many Yoruba individuals carry the APOL1 risk variant rs73885319?",
+     "SELECT COUNT(DISTINCT g.sample_id) FROM genotypes g JOIN variants v ON v.id = g.variant_id JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt JOIN samples s ON s.sample_id = g.sample_id "
+     "WHERE c.rsid = 'rs73885319' AND s.population = 'YRI'"),
+    ("carrier", 3, "What is the allele frequency of rs73885319 in the Esan population?",
+     "SELECT SUM(g.allele_count)::numeric / (2 * (SELECT COUNT(*) FROM samples WHERE population = 'ESN')) "
+     "FROM genotypes g JOIN variants v ON v.id = g.variant_id JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt JOIN samples s ON s.sample_id = g.sample_id WHERE c.rsid = 'rs73885319' AND s.population = 'ESN'"),
+    ("carrier", 2, "How many individuals carry at least one pathogenic ClinVar variant?",
+     "SELECT COUNT(DISTINCT g.sample_id) FROM genotypes g JOIN variants v ON v.id = g.variant_id JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt WHERE c.is_pathogenic"),
+    ("carrier", 2, "How many individuals are homozygous for a pathogenic ClinVar variant?",
+     "SELECT COUNT(DISTINCT g.sample_id) FROM genotypes g JOIN variants v ON v.id = g.variant_id JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt WHERE c.is_pathogenic AND g.allele_count = 2"),
+    ("carrier", 2, "How many female carriers of rs73885319 are there?",
+     "SELECT COUNT(DISTINCT g.sample_id) FROM genotypes g JOIN variants v ON v.id = g.variant_id JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt JOIN samples s ON s.sample_id = g.sample_id "
+     "WHERE c.rsid = 'rs73885319' AND s.sex = 'female'"),
+    ("unanswerable", 1, "What is the age of sample HG00096?", None),
 ]
 
 
@@ -232,6 +270,10 @@ def build():
         if rest and rest[0]:
             item["ordered"] = True
         items.append(item)
+
+    dupes = sorted({i["id"] for i in items if sum(j["id"] == i["id"] for j in items) > 1})
+    if dupes:
+        raise SystemExit(f"Duplicate ids {dupes}: category names must differ in their first 3 letters")
 
     splits = assign_splits(items)
     for item in items:

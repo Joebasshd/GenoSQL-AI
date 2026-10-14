@@ -7,3 +7,4 @@ data/*.tbi
 .vscode/
 .pytest_cache/
 data/clinvar/
+data/reference/

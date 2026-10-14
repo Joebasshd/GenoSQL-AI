@@ -12,7 +12,7 @@ text-to-SQL, a pgvector example memory, and a simple UI. The pipeline worked end
 What the October 2026 review found and fixed:
 
 | Problem | Effect | Fix |
-|---|---|---|
+| --- | --- | --- |
 | Every valid-looking SQL was auto-saved as a few-shot example | Memory **poisoned itself**: all 7 seeds used a non-existent `qual` column; `chrom = 'chr22'` (0 rows) was saved as "correct" | Only human-verified SQL enters memory (`/feedback`); seeds rewritten |
 | `quality` = 100 for all 1.1 M rows | "High quality variants" questions are meaningless | Schema notes tell the model; benchmark avoids them |
 | Allele frequencies stored as JSON arrays | The most useful data (population AFs) was effectively unqueryable | Typed columns `af`, `afr_af`…`sas_af`, `ac`, `an`, `variant_type`, `sv_type`, `end_pos`; multi-allelic sites split per allele |
@@ -27,6 +27,7 @@ What the October 2026 review found and fixed:
 ## 2. Positioning: what would make this genuinely useful (and publishable)
 
 **What already exists — don't compete head-on:**
+
 - *BiomedSQL* (NIH-CARD, arXiv 2505.20321, ICLR 2026): 68 k templated question/SQL pairs over a
   BigQuery biomedical knowledge base (GWAS, omics causal inference, drug approvals). Frontier models
   reach ~60 % execution accuracy vs 90 % for experts. Focus: scientific reasoning, frontier/cloud models.
@@ -69,12 +70,6 @@ Contributions:
 Statistics: paired comparisons per question → McNemar's test; bootstrap CIs on accuracy. Fixed seeds,
 temperature 0, model digests recorded.
 
-### Scope cuts (recommended)
-
-Drop from the paper scope: Apache AGE graph, MinIO, Redis, patient stratification, AlphaMissense-style
-prediction. They add infrastructure cost without serving the research questions, and each is a paper of
-its own. (They can appear as "future work".) RQ1–RQ3 from Chapter One map onto contributions 1–3 directly.
-
 ## 3. First measurements on the target laptop (i5-1135G7, 7.7 GB RAM, no GPU)
 
 - Ingestion: 1,103,547 records → 1,110,237 allele rows in 621 s (site-only parser).
@@ -91,7 +86,7 @@ Full table: [eval/results/SUMMARY_v0.md](../eval/results/SUMMARY_v0.md). "Baseli
 no RAG, no repair. "Full" = semantic layer + 3 verified examples + up to 2 repairs + abstention.
 
 | config | EX (relaxed) | correct abstention | silent wrong answers* |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1.5B baseline | 15.4 % | 0/6 | 59 % |
 | 3B baseline | 15.4 % | 1/6 | 72 % |
 | 1.5B full | 51.9 % | 0/6 | 45 % |
@@ -132,33 +127,55 @@ no RAG, no repair. "Full" = semantic layer + 3 verified examples + up to 2 repai
 
 ## 4. Roadmap
 
-### Phase 1 — Data breadth (1–2 weeks)
-- [ ] Gene annotations: GENCODE v19 (GRCh37) genes on chr22 → `genes(gene_name, gene_id, chrom, start_pos, end_pos, strand, biotype)`. Unlocks "variants in APOL1" — the most common real question.
-- [x] ClinVar GRCh37 VCF, chr22 subset (fetched via tabix index, 4 MB; release 2026-10-11) → `clinvar(chrom, pos, ref, alt, clnsig, clndn, review_status, gene)`. Unlocks "pathogenic variants common in AFR but rare in EUR" (genuinely interesting: population-differentiated clinically-relevant variants).
-- [ ] 1000G sample panel (2,504 samples → 26 populations, 5 super-pops, sex) → `samples`.
-- [ ] Optional: sparse carrier genotypes for a gene subset (full chr22 genotypes ≈ 10⁸ rows — too big for the laptop target).
-- [ ] Add each table to `app/nl_query/schema.py` and `READABLE_TABLES` in `scripts/setup_db.py`.
+### Phase 1 — Data breadth ✅ (completed 2026-10-14)
+
+- [x] ClinVar GRCh37 chr22 (release 2026-10-11) → `clinvar`; fetched via the tabix index (4 MB instead of 200 MB).
+- [x] 1000G sample panel → `samples` (2,504) + `populations` (26 populations, 5 super-populations, names).
+- [x] Genes: Ensembl GRCh37 release 87 chr22 GFF3 → `genes` (1,263) + precomputed `variant_genes` (803 k overlaps).
+  Interval joins against 1.1 M variants timed out at 15 s; the materialised overlap table answers in < 0.5 s
+  and gives small models a simple equality join.
+- [x] Sparse carrier genotypes for the 13,774 alleles shared by 1000G and ClinVar → `genotypes` (2.9 M rows),
+  read from the local chr22 VCF (no extra download). Integrity check: summed allele counts equal the VCF's AC
+  for all 13,744 variants with carriers (the other 30 have AC = 0). Sanity check: APOL1 G1 (rs73885319)
+  allele frequency 37.5 % in YRI, 49.5 % in ESN.
+- [x] All tables in `app/nl_query/schema.py` / `READABLE_TABLES`; one-command `scripts/bootstrap.py`.
+- Deferred: dbSNP rsIDs for all 1000G variants (requires the ~200 MB v5b chr22 VCF). ClinVar supplies rsIDs
+  for its 63 k variants. Genotypes for all variants (~10⁸ rows) are out of scope for the laptop target.
 
 ### Phase 2 — Benchmark (2–3 weeks)
+
 - [ ] Grow `eval/benchmark.jsonl` to 150–250 items; ~20 % multi-table joins, ~10 % unanswerable.
 - [ ] Two annotators write/review gold SQL independently; record agreement.
 - [ ] Paraphrase set: each question in 2 phrasings (lay vs expert) → robustness.
 - [ ] Freeze v1, publish on GitHub/Zenodo with DOI.
 
 ### Phase 3 — Experiments (2 weeks, mostly unattended compute)
-- [ ] Models: qwen2.5-coder 0.5b/1.5b/3b/7b, llama3.2 3b, a recent 7–8B general model, one SQL-tuned model; one hosted frontier model as ceiling.
+
+- [ ] Models (all free, local via Ollama): qwen2.5-coder 0.5b/1.5b/3b, llama3.2 3b, a recent 3–4B general model,
+  one SQL-tuned small model; 7B only if a ≥16 GB machine is available. Optional frontier ceiling only via free
+  credits or free-tier endpoints (`LLM_BACKEND=openai`) — not required for the paper's claims.
 - [ ] Ablation grid (5 configs × ~7 models × ~200 items ≈ 7 k runs; CPU ~10–20 s each → 1–2 days).
 - [ ] Memory-poisoning simulation.
 - [ ] Adversarial safety set.
 
 ### Phase 4 — Usability (optional but strengthens the paper)
+
 - [ ] 5–10 biologists: tasks with UI vs writing SQL; time-to-answer, correctness, SUS questionnaire. Needs ethics approval if at a university.
 
-### Phase 5 — Deploy & write
-- [ ] `docker compose --profile app up` single-command deploy; cheapest hosted option is a 4 vCPU / 8 GB VPS (~$20–40/month) with Ollama.
-- [ ] Paper targets: *Bioinformatics* Application Note (short, tool-focused) or *NAR Genomics and Bioinformatics* / *BMC Bioinformatics* (full study); workshop alternative: a NeurIPS/ICLR data-centric or LLM-for-science workshop.
+### Phase 5 — Release & write (no hosting budget: local-first by design)
+
+- [x] Distribution model: **fork / clone and run locally** (`scripts/bootstrap.py` + Docker + Ollama). No server,
+  no API keys, $0 per query — this *is* the paper's thesis, so a hosted demo is not needed.
+- [ ] Tag a release (`v1.0`) and archive it on Zenodo for a free DOI (GitHub → Zenodo integration), so the
+  paper can cite an immutable version of code + benchmark + results.
+- [ ] Optional free demo: a short screen recording or GIF in the README instead of a hosted instance.
+- [ ] Paper targets: *Bioinformatics* Application Note (short, tool-focused) or *NAR Genomics and Bioinformatics* /
+  *BMC Bioinformatics* (full study); workshop alternative: a NeurIPS/ICLR data-centric or LLM-for-science workshop.
+  Check each venue's article processing charge — prefer venues with waivers or no APC (e.g. arXiv/bioRxiv
+  preprint first, then a workshop or a journal offering APC waivers).
 
 ## 5. Threats to validity (address in the paper)
+
 - Single chromosome, single cohort: answer distributions may not generalise → add ClinVar + second dataset (e.g. gnomAD chr22 sites subset).
 - Benchmark authored by the system's authors → independent annotator, paraphrases, freeze before tuning prompts.
 - Seed examples leaking into benchmark → seeds are pattern-level and checked for overlap; evaluation excludes self-retrieval.

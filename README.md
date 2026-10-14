@@ -1,6 +1,11 @@
 # GenoSQL-AI
 
-Natural-language querying of genomic variant data with small, locally-run open LLMs on PostgreSQL + pgvector — designed to run on a commodity laptop (no GPU, 8 GB RAM) at zero marginal cost per query.
+Ask questions about human genetic variation in plain English and get answers from a real database — using a small open-source LLM that runs **entirely on your own laptop**. No GPU, no cloud account, no API key, $0 per query.
+
+> *"How many Yoruba individuals carry the APOL1 risk variant rs73885319?"*
+> → `SELECT COUNT(DISTINCT g.sample_id) FROM genotypes g JOIN … WHERE c.rsid = 'rs73885319' AND s.population = 'YRI'` → **68**
+
+This is a research proof-of-concept: there is no hosted version. **Fork or clone it and run it locally.**
 
 ```
 question ─► retrieve verified examples (pgvector) ─► LLM (Ollama) ─► SQL guard (sqlglot AST)
@@ -10,31 +15,53 @@ question ─► retrieve verified examples (pgvector) ─► LLM (Ollama) ─►
                                          SELECT-only role, READ ONLY txn, statement timeout
 ```
 
-**Data (chromosome 22, GRCh37):**
-- 1000 Genomes Project phase 3 — 1.1 M variant alleles with global and continental (AFR/AMR/EAS/EUR/SAS) allele frequencies (`variants`)
-- ClinVar (release 2026-10-11) — 99 k classified alleles with gene, significance, review stars, conditions, rsIDs (`clinvar`), joinable to `variants` on normalized (chrom, pos, ref, alt)
+## What's in the database (chromosome 22, GRCh37)
 
-## Quick start
+| Table | Contents | Source |
+|---|---|---|
+| `variants` | 1.1 M variant alleles with global + AFR/AMR/EAS/EUR/SAS allele frequencies | 1000 Genomes phase 3 |
+| `clinvar` | 99 k classified alleles: significance, review stars, gene, conditions, rsIDs | ClinVar (2026-10-11) |
+| `samples`, `populations` | 2,504 individuals, 26 populations, 5 super-populations, sex | 1000 Genomes panel |
+| `genes`, `variant_genes` | 1,263 genes with coordinates; 803 k precomputed variant↔gene overlaps | Ensembl GRCh37 r87 |
+| `genotypes` | 2.9 M carrier genotypes for the 13.8 k variants also in ClinVar | 1000 Genomes phase 3 |
 
-Prereqs: Docker, Python 3.11+, [Ollama](https://ollama.com).
+ClinVar and 1000 Genomes alleles are normalized identically and join on `(chrom, pos, ref, alt)`.
+
+## Run it locally
+
+**You need:** 8 GB RAM or more, ~6 GB free disk, [Docker](https://www.docker.com/products/docker-desktop/), [Python 3.11+](https://www.python.org/), [Ollama](https://ollama.com). Works on Windows, macOS and Linux.
 
 ```bash
-cp .env.example .env                     # then set DB_PASS and READER_PASS
-docker compose up -d db
-python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # bin/ on Linux/macOS
-ollama pull qwen2.5-coder:7b
-
-python -m scripts.setup_db               # schema + SELECT-only reader role
-python -m scripts.load_vcf data/chr22.vcf.gz
-python -m scripts.fetch_clinvar_slice    # chr22 only, via the tabix index (~4 MB, not the 200 MB file)
-python -m scripts.load_clinvar
-python -m scripts.seed_examples
-uvicorn app.main:app --reload            # UI at http://localhost:8000
+git clone https://github.com/<you>/GenoSQL-AI.git && cd GenoSQL-AI
+cp .env.example .env                    # set DB_PASS and READER_PASS to any passwords
+docker compose up -d db                 # PostgreSQL 16 + pgvector on port 5434
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # macOS/Linux: .venv/bin/pip
+ollama pull qwen2.5-coder:3b            # ~1.9 GB
+python -m scripts.bootstrap             # downloads ~210 MB of public data and loads everything
+uvicorn app.main:app                    # open http://localhost:8000
 ```
 
-The chr22 VCF is `ALL.chr22.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz` from the 1000 Genomes FTP (`ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/`).
+`bootstrap` takes ~15–25 minutes (mostly parsing the chr22 VCF), skips steps that are already done, and resumes interrupted downloads — re-run it if anything stops.
 
-## API
+**Choosing a model** (measured on an i5 laptop, 8 GB RAM, CPU only — see [eval/results](eval/results)):
+
+| Model | RAM needed | Dev accuracy* | Notes |
+|---|---|---|---|
+| `qwen2.5-coder:1.5b` | ~1.5 GB | see results | fastest; rarely declines unanswerable questions |
+| `qwen2.5-coder:3b` (default) | ~2.5 GB | see results | best accuracy/safety on 8 GB machines |
+| `qwen2.5-coder:7b` | ~5 GB | not benchmarked | needs ≥ 16 GB RAM alongside Docker |
+
+Set `LLM_MODEL` in `.env` to switch. Any OpenAI-compatible server also works (`LLM_BACKEND=openai`, `OPENAI_BASE_URL`).
+
+**Troubleshooting**
+- *Very slow answers / machine swapping:* use a smaller model, or cap Docker Desktop's memory (Windows: `%UserProfile%\.wslconfig` → `[wsl2]` `memory=2GB`).
+- *Port 5434 in use:* change `DB_PORT` in `.env`.
+- *Works offline* once bootstrapped — the embedding model loads from the local cache.
+
+## Using it
+
+Type a question in the UI. You see the generated SQL, the results, and a ✓/✗ to mark whether it was right. A ✓ stores that question→SQL pair as a verified example the system retrieves for similar future questions; unverified SQL is never reused. Questions the data can't answer (expression, gnomAD, phenotypes…) should get a "can't answer" instead of a made-up query.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -43,20 +70,24 @@ The chr22 VCF is `ALL.chr22.phase3_shapeit2_mvncall_integrated_v5a.20130502.geno
 | GET | `/history` | recent queries from `query_log` |
 | GET | `/health`, `/stats` | DB/LLM status, counts |
 
-## Evaluation
+## Evaluation (reproducing the research results)
 
 ```bash
 python -m eval.run_eval --check-gold                         # validate the benchmark's gold SQL
 python -m eval.run_eval                                      # full pipeline on the DEV split (default)
 python -m eval.run_eval --split test                         # held-out TEST split: report only, never tune
 python -m eval.run_eval --no-rag --no-semantic --repairs 0   # bare-LLM baseline
-python -m eval.run_eval --model qwen2.5-coder:3b             # model-size comparison
-python -m eval.summarize                                     # compare runs + McNemar tests
+python -m eval.run_eval --no-routing --no-value-check        # without the answer-routing and value-check fixes
+python -m eval.summarize --split dev                         # compare runs + McNemar tests
 pytest
 ```
 
-Metric is **execution accuracy**: gold and predicted SQL are both executed and their result sets compared (`strict`: same columns; `relaxed`: extra predicted columns allowed). Unanswerable questions are scored on correct abstention. The benchmark has a frozen, category-stratified dev/test split (`eval/splits.json`, ~40/60): iterate on dev, report test. See [docs/RESEARCH_STRATEGY.md](docs/RESEARCH_STRATEGY.md).
+Metric is **execution accuracy**: gold and predicted SQL are both executed and their result sets compared (`strict`: same columns; `relaxed`: extra predicted columns allowed). Unanswerable questions are scored on correct abstention, and "silent wrong" counts answers that look valid but are wrong. The benchmark has a frozen, category-stratified dev/test split (`eval/splits.json`, ~40/60): iterate on dev, report test. Research plan and findings: [docs/RESEARCH_STRATEGY.md](docs/RESEARCH_STRATEGY.md).
 
 ## Safety model
 
-LLM-generated SQL is executed by `genosql_reader`, a login role with `SELECT` on `variants` and `clinvar` only, inside a `READ ONLY` transaction with a statement timeout and a streamed row cap. The sqlglot guard (single SELECT, known tables/columns, no `pg_*`/`set_config`/`dblink`-style functions) is defence in depth and produces precise errors for self-repair.
+LLM-generated SQL runs as `genosql_reader`, a login role with `SELECT` on the data tables only (not the example memory or query log), inside a `READ ONLY` transaction with a statement timeout and a streamed row cap. The sqlglot guard (single SELECT; known tables and columns, checked per table; known category values; no `pg_*`/`set_config`/`dblink`-style functions) is defence in depth and produces precise errors the model uses to repair its query.
+
+## Data licences
+
+1000 Genomes and Ensembl data are openly available; ClinVar is public domain (NCBI). Data files are downloaded by `bootstrap`, not stored in this repository. This tool is for research use, not clinical decision-making.

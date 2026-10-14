@@ -11,7 +11,7 @@ from app.nl_query.sql_guard import clean_sql, validate_sql
     "WITH rare AS (SELECT * FROM variants WHERE af < 0.01) SELECT COUNT(*) FROM rare;",
     "SELECT v.pos FROM variants v WHERE v.af > 0.5;",                       # table alias
     "SELECT x.c FROM (SELECT COUNT(*) AS c FROM variants) x;",              # derived table
-    "SELECT * FROM variants WHERE rsid LIKE 'rs%' LIMIT 1;",
+    "SELECT * FROM clinvar WHERE rsid LIKE 'rs%' LIMIT 1;",
     "SELECT s.n FROM generate_series(1, 3) AS s(n);",                       # table function
     "SELECT pos FROM variants WHERE ref = 'A' UNION SELECT pos FROM variants WHERE ref = 'C';",
 ])
@@ -70,3 +70,20 @@ def test_allows_clinvar_queries(sql):
 def test_rejects_column_from_wrong_table(sql, fragment):
     ok, reason = validate_sql(sql)
     assert not ok and fragment in reason, reason
+
+
+@pytest.mark.parametrize("sql, fragment", [
+    ("SELECT COUNT(*) FROM variants WHERE variant_type = 'INS';", "'INS' is not a valid value for variant_type"),
+    ("SELECT COUNT(*) FROM variants WHERE chrom = 'chr22';", "'chr22' is not a valid value for chrom"),
+    ("SELECT COUNT(*) FROM samples WHERE super_population IN ('AFR', 'African');", "'African'"),
+    ("SELECT COUNT(*) FROM clinvar WHERE 'pathogenic_variant' = significance_class;", "significance_class"),
+])
+def test_rejects_unknown_category_values(sql, fragment):
+    ok, reason = validate_sql(sql)
+    assert not ok and fragment in reason, reason
+
+
+def test_category_check_can_be_disabled_and_allows_valid_values():
+    assert validate_sql("SELECT 1 FROM variants WHERE variant_type = 'INS';", check_values=False)[0]
+    assert validate_sql("SELECT 1 FROM variants WHERE variant_type IN ('SNP', 'INDEL') AND sex IS NULL;")[0] is False  # sex not in variants
+    assert validate_sql("SELECT COUNT(*) FROM samples s WHERE s.sex = 'female' AND s.super_population = 'AFR';")[0]

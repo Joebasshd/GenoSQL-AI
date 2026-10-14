@@ -18,9 +18,9 @@ SEEDS = [
      "SELECT chrom, pos, ref, alt, af FROM variants "
      "WHERE chrom = '22' AND pos BETWEEN 17000000 AND 17010000 ORDER BY pos;"),
 
-    ("which variants overlap position 18,500,000 on chromosome 22, including structural variants",
+    ("which variants overlap position 22,500,000 on chromosome 22, including structural variants",
      "SELECT chrom, pos, end_pos, ref, alt, variant_type FROM variants "
-     "WHERE chrom = '22' AND pos <= 18500000 AND end_pos >= 18500000;"),
+     "WHERE chrom = '22' AND pos <= 22500000 AND end_pos >= 22500000;"),
 
     ("population frequencies of the C>T variant at 22:23000215",
      "SELECT chrom, pos, ref, alt, af, afr_af, amr_af, eas_af, eur_af, sas_af "
@@ -59,6 +59,21 @@ SEEDS = [
     ("ClinVar variants reported for DiGeorge syndrome",
      "SELECT gene, pos, ref, alt, clinical_significance, conditions FROM clinvar "
      "WHERE conditions ILIKE '%digeorge%';"),
+
+    ("protein-coding genes on the minus strand longer than 500 kb",
+     "SELECT gene_name, start_pos, end_pos, end_pos - start_pos + 1 AS length_bp FROM genes "
+     "WHERE biotype = 'protein_coding' AND strand = '-' AND end_pos - start_pos + 1 > 500000 ORDER BY length_bp DESC;"),
+
+    ("number of variants of each type in MYH9",
+     "SELECT v.variant_type, COUNT(*) AS n FROM variants v "
+     "JOIN variant_genes vg ON vg.variant_id = v.id JOIN genes g ON g.gene_id = vg.gene_id "
+     "WHERE g.gene_name = 'MYH9' GROUP BY v.variant_type ORDER BY n DESC;"),
+
+    ("carriers per super-population of the ClinVar allele G>A at 22:19951271",
+     "SELECT s.super_population, COUNT(*) AS carriers FROM genotypes g "
+     "JOIN variants v ON v.id = g.variant_id JOIN samples s ON s.sample_id = g.sample_id "
+     "WHERE v.chrom = '22' AND v.pos = 19951271 AND v.ref = 'G' AND v.alt = 'A' "
+     "GROUP BY s.super_population ORDER BY carriers DESC;"),
 
     ("what is the ancestral allele at 22:16050075",
      "SELECT chrom, pos, ref, alt, info->>'AA' AS ancestral_allele FROM variants "
