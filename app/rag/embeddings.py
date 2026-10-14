@@ -12,7 +12,12 @@ def _get_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(config.EMBEDDING_MODEL)
+        try:
+            # Offline-first: no Hugging Face round trip when the model is cached,
+            # so the system keeps working without internet.
+            _model = SentenceTransformer(config.EMBEDDING_MODEL, local_files_only=True)
+        except OSError:
+            _model = SentenceTransformer(config.EMBEDDING_MODEL)  # first run: download
     return _model
 
 

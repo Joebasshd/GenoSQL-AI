@@ -125,13 +125,48 @@ ITEMS = [
      "UNION ALL SELECT 'SAS', COUNT(*) FROM variants WHERE sas_af > 0 AND afr_af = 0 AND amr_af = 0 AND eas_af = 0 AND eur_af = 0) t "
      "ORDER BY n DESC LIMIT 1"),
 
+    # ── ClinVar (single table and joins to 1000 Genomes) ───────────────
+    ("clinvar", 2, "How many pathogenic or likely pathogenic ClinVar variants are there on chromosome 22?",
+     "SELECT COUNT(*) FROM clinvar WHERE is_pathogenic"),
+    ("clinvar", 2, "Which gene has the most pathogenic ClinVar variants, and how many does it have?",
+     "SELECT gene, COUNT(*) FROM clinvar WHERE is_pathogenic GROUP BY gene ORDER BY COUNT(*) DESC LIMIT 1"),
+    ("clinvar", 1, "How many CHEK2 variants of uncertain significance are in ClinVar?",
+     "SELECT COUNT(*) FROM clinvar WHERE gene = 'CHEK2' AND significance_class = 'uncertain'"),
+    ("clinvar", 1, "What is the ClinVar clinical significance of rs4680?",
+     "SELECT clinical_significance FROM clinvar WHERE rsid = 'rs4680'"),
+    ("clinvar", 1, "How many ClinVar variants were reviewed by an expert panel or have a practice guideline?",
+     "SELECT COUNT(*) FROM clinvar WHERE review_stars >= 3"),
+    ("clinvar", 2, "How many missense ClinVar variants are there in COMT?",
+     "SELECT COUNT(*) FROM clinvar WHERE gene = 'COMT' AND consequences LIKE '%missense_variant%'"),
+    ("clinvar", 1, "How many different genes on chromosome 22 have at least one ClinVar variant?",
+     "SELECT COUNT(DISTINCT gene) FROM clinvar"),
+    ("clinvar", 1, "How many ClinVar variants have conflicting classifications?",
+     "SELECT COUNT(*) FROM clinvar WHERE significance_class = 'conflicting'"),
+    ("clinvar", 2, "How many ClinVar variants are associated with schizophrenia?",
+     "SELECT COUNT(*) FROM clinvar WHERE conditions ILIKE '%schizophrenia%'"),
+    ("join", 2, "What are the African and European allele frequencies of the APOL1 risk variant rs73885319?",
+     "SELECT v.afr_af, v.eur_af FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+     "AND v.ref = c.ref AND v.alt = c.alt WHERE c.rsid = 'rs73885319'"),
+    ("join", 2, "How many pathogenic ClinVar variants are also observed in the 1000 Genomes data?",
+     "SELECT COUNT(*) FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+     "AND v.ref = c.ref AND v.alt = c.alt WHERE c.is_pathogenic"),
+    ("join", 3, "Which pathogenic ClinVar variants are more than 1 percentage point more frequent in Africans than in Europeans?",
+     "SELECT c.pos, c.ref, c.alt FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+     "AND v.ref = c.ref AND v.alt = c.alt WHERE c.is_pathogenic AND v.afr_af - v.eur_af > 0.01"),
+    ("join", 3, "Among APOL1 variants in ClinVar that also appear in 1000 Genomes, what is the highest African allele frequency?",
+     "SELECT MAX(v.afr_af) FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+     "AND v.ref = c.ref AND v.alt = c.alt WHERE c.gene = 'APOL1'"),
+    ("join", 3, "Of the ClinVar variants that are present in 1000 Genomes, what fraction are rare?",
+     "SELECT AVG(CASE WHEN v.af < 0.01 THEN 1.0 ELSE 0.0 END) FROM clinvar c JOIN variants v "
+     "ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt"),
+
     # ── unanswerable (correct behaviour: abstain) ───────────────────────
-    ("unanswerable", 2, "Which variants fall in the APOL1 gene?", None),
-    ("unanswerable", 2, "What is the allele frequency of rs4680?", None),
-    ("unanswerable", 1, "List the pathogenic variants on chromosome 22.", None),
+    ("unanswerable", 3, "List every 1000 Genomes variant located within the APOL1 gene, including variants that are not in ClinVar.", None),
+    ("unanswerable", 2, "What is the gnomAD allele frequency of rs4680?", None),
+    ("unanswerable", 1, "Which genes on chromosome 22 are most highly expressed in kidney?", None),
     ("unanswerable", 2, "How many individuals carry the variant at 22:23000030?", None),
     ("unanswerable", 2, "What is the allele frequency of the variant at 22:23000030 in the Yoruba (YRI) population?", None),
-    ("unanswerable", 1, "Show variants associated with schizophrenia.", None),
+    ("unanswerable", 2, "Which ClinVar submitters classified rs4680 as benign?", None),
 ]
 
 

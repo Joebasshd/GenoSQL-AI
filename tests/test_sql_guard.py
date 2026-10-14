@@ -49,3 +49,24 @@ def test_clean_sql_strips_fences_and_prose():
 
 def test_clean_sql_keeps_single_trailing_semicolon():
     assert clean_sql("SELECT 1;;  ") == "SELECT 1;"
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT c.gene, v.afr_af FROM clinvar c JOIN variants v ON v.chrom = c.chrom AND v.pos = c.pos "
+    "AND v.ref = c.ref AND v.alt = c.alt WHERE c.is_pathogenic;",
+    "SELECT gene, afr_af FROM clinvar JOIN variants USING (chrom, pos, ref, alt);",
+    "SELECT COUNT(*) FROM clinvar WHERE conditions ILIKE '%schizophrenia%';",
+])
+def test_allows_clinvar_queries(sql):
+    ok, reason = validate_sql(sql)
+    assert ok, reason
+
+
+@pytest.mark.parametrize("sql, fragment", [
+    ("SELECT afr_af FROM clinvar WHERE rsid = 'rs4680';", "only in: variants"),   # needs a join
+    ("SELECT v.gene FROM variants v;", "has no column 'gene'"),
+    ("SELECT yri_af FROM variants;", "Unknown column 'yri_af'"),
+])
+def test_rejects_column_from_wrong_table(sql, fragment):
+    ok, reason = validate_sql(sql)
+    assert not ok and fragment in reason, reason
