@@ -22,7 +22,7 @@ READER_PASS = os.getenv("READER_PASS", "")
 
 # LLM
 LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")          # "ollama" | "openai"
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-coder:7b")
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-coder:3b")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", "8192"))        # Ollama default (4096) truncates repair turns
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")        # any OpenAI-compatible server

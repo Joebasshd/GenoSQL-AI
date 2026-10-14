@@ -3,14 +3,16 @@ Compare eval runs side by side (markdown), with McNemar tests between pairs.
 
     python -m eval.summarize                       # all eval/results/*.jsonl
     python -m eval.summarize run_a run_b           # specific tags
+    python -m eval.summarize --split dev           # score only the dev (or test) items of each run
 """
+import argparse
 import json
 import statistics
-import sys
 from math import comb
 from pathlib import Path
 
 RESULTS = Path(__file__).resolve().parent / "results"
+BENCHMARK = Path(__file__).resolve().parent / "benchmark.jsonl"
 
 
 def load(tag):
@@ -48,8 +50,17 @@ def mcnemar(a, b):
 
 
 def main():
-    tags = sys.argv[1:] or sorted(p.stem for p in RESULTS.glob("*.jsonl"))
+    p = argparse.ArgumentParser()
+    p.add_argument("tags", nargs="*")
+    p.add_argument("--split", choices=["dev", "test", "all"], default="all")
+    args = p.parse_args()
+    tags = args.tags or sorted(p.stem for p in RESULTS.glob("*.jsonl"))
     runs = {t: load(t) for t in tags}
+    if args.split != "all":
+        # Older runs predate the split; map ids through the current benchmark.
+        split_of = {i["id"]: i.get("split") for i in map(json.loads, BENCHMARK.read_text(encoding="utf-8").splitlines()) if i}
+        runs = {t: [r for r in recs if split_of.get(r["id"]) == args.split] for t, recs in runs.items()}
+        print(f"Split: {args.split} ({len(next(iter(runs.values())))} items)\n")
     print("| run | EX relaxed % | EX strict % | abstain on unanswerable % | false abstain | failed SQL | silent wrong % | median s | tokens/q |")
     print("|---|---|---|---|---|---|---|---|---|")
     for t, recs in runs.items():

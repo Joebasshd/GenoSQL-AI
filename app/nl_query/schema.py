@@ -13,7 +13,8 @@ TABLES = {
             ("chrom", "TEXT", "chromosome name WITHOUT 'chr' prefix, e.g. '22'"),
             ("pos", "INTEGER", "1-based start position (GRCh37)"),
             ("end_pos", "INTEGER", "end position; for structural variants the SV end, otherwise pos + length(ref) - 1"),
-            ("rsid", "TEXT", "dbSNP identifier; NULL for every row in this release (IDs were not distributed)"),
+            # variants.rsid exists in the DB but is NULL for every row in this release, so it is
+            # hidden from the model: the guard then points rsID questions to clinvar.rsid.
             ("ref", "TEXT", "reference allele"),
             ("alt", "TEXT", "single alternate allele; symbolic for SVs, e.g. '<CN0>', '<INS:ME:ALU>'"),
             ("variant_type", "TEXT", "per-allele class: 'SNP' (single base change), 'INDEL' (ref and alt lengths differ), "
@@ -61,35 +62,113 @@ TABLES = {
             ("origin", "INTEGER", "allele origin bit flags: 1 germline, 2 somatic, 4 inherited, 8 paternal, 16 maternal, 32 de novo"),
         ],
     },
+    "populations": {
+        "description": "The 26 1000 Genomes populations and their 5 continental super-populations.",
+        "columns": [
+            ("population", "TEXT", "population code, e.g. 'YRI', 'CEU', 'CHB', 'GIH', 'PEL'"),
+            ("population_name", "TEXT", "e.g. 'Yoruba in Ibadan, Nigeria', 'Finnish in Finland'"),
+            ("super_population", "TEXT", "'AFR', 'AMR', 'EAS', 'EUR' or 'SAS'"),
+            ("super_population_name", "TEXT", "'African', 'Admixed American', 'East Asian', 'European', 'South Asian'"),
+        ],
+    },
+    "samples": {
+        "description": "The 2,504 1000 Genomes individuals.",
+        "columns": [
+            ("sample_id", "TEXT", "individual id, e.g. 'HG00096', 'NA19238'"),
+            ("population", "TEXT", "population code (see populations)"),
+            ("super_population", "TEXT", "'AFR', 'AMR', 'EAS', 'EUR' or 'SAS'"),
+            ("sex", "TEXT", "'male' or 'female'"),
+        ],
+    },
+    "genes": {
+        "description": "Ensembl (GRCh37 release 87) genes on chromosome 22 with coordinates.",
+        "columns": [
+            ("gene_id", "TEXT", "Ensembl gene id, e.g. 'ENSG00000100342'"),
+            ("gene_name", "TEXT", "gene symbol, e.g. 'APOL1', 'COMT', 'CHEK2'"),
+            ("biotype", "TEXT", "e.g. 'protein_coding', 'lincRNA', 'pseudogene', 'miRNA', 'antisense'"),
+            ("chrom", "TEXT", "always '22'"),
+            ("start_pos", "INTEGER", "gene start, 1-based inclusive"),
+            ("end_pos", "INTEGER", "gene end, inclusive"),
+            ("strand", "TEXT", "'+' or '-'"),
+            ("description", "TEXT", "gene description, e.g. 'apolipoprotein L1 [Source:HGNC Symbol;Acc:618]'"),
+        ],
+    },
+    "variant_genes": {
+        "description": "Which 1000 Genomes variants lie in which genes (precomputed overlaps). "
+                       "Use this to connect variants and genes; it is much faster than comparing coordinates.",
+        "columns": [
+            ("variant_id", "BIGINT", "variants.id"),
+            ("gene_id", "TEXT", "genes.gene_id"),
+        ],
+    },
+    "genotypes": {
+        "description": "Carrier genotypes of 1000 Genomes individuals, ONLY for the variants that are also in ClinVar "
+                       "(about 13,800 variants). One row per carrier; a sample with no row is homozygous reference.",
+        "columns": [
+            ("variant_id", "BIGINT", "variants.id"),
+            ("sample_id", "TEXT", "samples.sample_id"),
+            ("allele_count", "SMALLINT", "copies of the ALT allele: 1 = heterozygous, 2 = homozygous alternate"),
+        ],
+    },
 }
 
+# Facts about the data. Shared by every configuration that uses the semantic layer.
 DOMAIN_NOTES = """
 Conventions:
 - "chr22", "chromosome 22" and "22" all mean chrom = '22'.
 - Positions are 1-based. A variant overlaps region [s, e] when pos <= e AND end_pos >= s.
+- Variants in a gene: variants JOIN variant_genes ON variant_genes.variant_id = variants.id
+  JOIN genes ON genes.gene_id = variant_genes.gene_id (equivalent to overlapping the gene coordinates).
 - "Rare" means af < 0.01; "low frequency" 0.01 <= af < 0.05; "common" af >= 0.05.
 - "Singleton" means ac = 1. "Fixed" or near-fixed alt alleles have af > 0.99.
-- Population codes: AFR = African, AMR = Admixed American, EAS = East Asian,
-  EUR = European, SAS = South Asian. Use the *_af columns for population questions.
+- Super-population codes: AFR = African, AMR = Admixed American, EAS = East Asian,
+  EUR = European, SAS = South Asian. variants.*_af columns hold super-population frequencies.
 - "Population-specific" / "private to X" means the X frequency is > 0 and all
-  other population frequencies are 0.
+  other super-population frequencies are 0.
 - A transition is A<->G or C<->T; any other single-base change is a transversion.
-- Indel length = abs(length(alt) - length(ref)); insertion when length(alt) > length(ref).
+- Indel length = abs(length(alt) - length(ref)); insertion when length(alt) > length(ref),
+  deletion when length(ref) > length(alt). Both have variant_type = 'INDEL'.
 - Do not filter on quality or filter; they carry no information in this dataset.
-- variants.rsid is always NULL; rsIDs exist only in clinvar.rsid.
-- To get population frequencies of ClinVar variants, join clinvar to variants
-  ON chrom, pos, ref AND alt. Many ClinVar variants are absent from 1000 Genomes.
+- rsIDs are in clinvar.rsid; join clinvar to variants for the frequencies of an rsID.
+- clinvar joins variants ON chrom, pos, ref AND alt. Many ClinVar variants are absent from 1000 Genomes.
 - "Pathogenic" means is_pathogenic (Pathogenic and/or Likely pathogenic). Never match
   pathogenicity with LIKE '%pathogenic%': it also matches 'Conflicting classifications
-  of pathogenicity'. Match conditions and genes case-insensitively (ILIKE).
-- Gene membership is known only for variants in clinvar (clinvar.gene); there are no
-  gene coordinates, so "all 1000 Genomes variants in gene X" cannot be answered.
-- There is NO sample, genotype, individual, sub-population (e.g. YRI, CEU), expression
-  or gnomAD data. Questions needing those cannot be answered.
+  of pathogenicity'. Use significance_class for other classes.
+- Frequency of a variant in one population (e.g. YRI) =
+  SUM(genotypes.allele_count) / (2 * number of samples in that population); count all samples of the
+  population in the denominator, not only carriers. Genotypes exist only for variants also in ClinVar.
+- There is no expression, gnomAD, phenotype, submitter or protein-structure data.
 """.strip()
 
+# Behavioural guidance (dev fix for answer shape, table routing and over-abstention).
+# Switchable for ablation: PipelineConfig.routing_rules.
+ROUTING_RULES = """
+How to answer:
+- Match the answer shape to the question: "how many" -> one COUNT; "average/mean/fraction/proportion"
+  -> one aggregate value; "which/list/show" -> rows. Do not list rows for a counting question.
+- Find the table that holds the information before deciding:
+  rsIDs, genes of ClinVar variants, clinical significance, conditions, review status -> clinvar;
+  gene names and coordinates -> genes; variants in a gene -> variant_genes; individuals, sex, the 26 populations -> samples / populations;
+  who carries a variant, per-population frequencies -> genotypes JOIN samples;
+  super-population frequencies -> variants.*_af. Join tables when a question spans them.
+- Use only the category values listed in the column descriptions; for free-text columns
+  (conditions, description) use ILIKE '%term%'.
+- Reply CANNOT_ANSWER only when no table above contains the needed information.
+""".strip()
 
-def schema_prompt(semantic: bool = True) -> str:
+# Category columns whose values are checked by the SQL guard (value linking).
+CATEGORICAL_VALUES = {
+    "variant_type": {"SNP", "INDEL", "MNP", "SV"},
+    "sv_type": {"DEL", "DUP", "CNV", "INV", "ALU", "LINE1", "SVA", "INS"},
+    "significance_class": {"pathogenic", "likely_pathogenic", "uncertain", "likely_benign",
+                           "benign", "conflicting", "other"},
+    "super_population": {"AFR", "AMR", "EAS", "EUR", "SAS"},
+    "sex": {"male", "female"},
+    "chrom": {"22"},
+}
+
+
+def schema_prompt(semantic: bool = True, routing: bool = False) -> str:
     """Render the schema for the system prompt. semantic=False gives names/types only."""
     parts = []
     for table, spec in TABLES.items():
@@ -99,6 +178,8 @@ def schema_prompt(semantic: bool = True) -> str:
         parts.append("")
     if semantic:
         parts.append(DOMAIN_NOTES)
+    if routing:
+        parts += ["", ROUTING_RULES]
     return "\n".join(parts).strip()
 
 

@@ -74,6 +74,65 @@ CREATE INDEX IF NOT EXISTS idx_clinvar_gene ON clinvar (gene);
 CREATE INDEX IF NOT EXISTS idx_clinvar_rsid ON clinvar (rsid);
 
 -- ─────────────────────────────────────────────────────────────
+-- populations / samples: 1000 Genomes phase 3 sample panel.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS populations (
+    population            TEXT PRIMARY KEY,    -- e.g. 'YRI'
+    population_name       TEXT NOT NULL,       -- e.g. 'Yoruba in Ibadan, Nigeria'
+    super_population      TEXT NOT NULL,       -- AFR | AMR | EAS | EUR | SAS
+    super_population_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS samples (
+    sample_id        TEXT PRIMARY KEY,         -- e.g. 'HG00096'
+    population       TEXT NOT NULL REFERENCES populations (population),
+    super_population TEXT NOT NULL,
+    sex              TEXT NOT NULL             -- 'male' | 'female'
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- genes: Ensembl GRCh37 release 87 genes on chromosome 22.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS genes (
+    gene_id      TEXT PRIMARY KEY,             -- Ensembl id, e.g. 'ENSG00000100342'
+    gene_name    TEXT,                         -- symbol, e.g. 'APOL1'
+    biotype      TEXT,                         -- protein_coding, lincRNA, pseudogene, ...
+    chrom        TEXT NOT NULL,
+    start_pos    INTEGER NOT NULL,             -- 1-based, inclusive
+    end_pos      INTEGER NOT NULL,
+    strand       TEXT,                         -- '+' | '-'
+    description  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_genes_name ON genes (gene_name);
+CREATE INDEX IF NOT EXISTS idx_genes_locus ON genes (chrom, start_pos, end_pos);
+
+-- variant_genes: precomputed variant/gene overlaps (pos <= gene end AND
+-- end_pos >= gene start). Interval joins over 1.1 M variants are too slow
+-- for interactive use; this turns gene questions into equality joins.
+CREATE TABLE IF NOT EXISTS variant_genes (
+    variant_id  BIGINT NOT NULL REFERENCES variants (id),
+    gene_id     TEXT   NOT NULL REFERENCES genes (gene_id),
+    PRIMARY KEY (variant_id, gene_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_variant_genes_gene ON variant_genes (gene_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- genotypes: sparse non-reference genotypes (carriers only) for the
+-- 1000 Genomes variants that are also in ClinVar. A sample absent for a
+-- variant is homozygous reference. Full chr22 would be ~10^8 rows.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS genotypes (
+    variant_id    BIGINT   NOT NULL REFERENCES variants (id),
+    sample_id     TEXT     NOT NULL REFERENCES samples (sample_id),
+    allele_count  SMALLINT NOT NULL,           -- copies of the ALT allele: 1 het, 2 hom-alt
+    PRIMARY KEY (variant_id, sample_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_genotypes_sample ON genotypes (sample_id);
+
+-- ─────────────────────────────────────────────────────────────
 -- sql_examples: RAG memory of (question → SQL) pairs.
 -- Only `verified` rows are retrieved as few-shot examples; unverified
 -- model output is never fed back into the prompt (avoids self-poisoning).

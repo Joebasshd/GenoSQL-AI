@@ -14,7 +14,7 @@ from app.database import engine
 SCHEMA_FILE = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
 
 # Tables the LLM is allowed to read. Keep in sync with app/nl_query/schema.py.
-READABLE_TABLES = ["variants", "clinvar"]
+READABLE_TABLES = ["variants", "clinvar", "populations", "samples", "genes", "variant_genes", "genotypes"]
 
 
 def setup(reset: bool = False):
@@ -23,8 +23,8 @@ def setup(reset: bool = False):
 
     with engine.begin() as conn:
         if reset:
-            conn.execute(text("DROP TABLE IF EXISTS variants, clinvar, sql_examples CASCADE"))
-            print("Dropped variants, clinvar and sql_examples.")
+            conn.execute(text("DROP TABLE IF EXISTS genotypes, variant_genes, variants, clinvar, genes, samples, populations, sql_examples CASCADE"))
+            print("Dropped data tables and sql_examples.")
 
         conn.exec_driver_sql(SCHEMA_FILE.read_text())
         print("Schema applied.")

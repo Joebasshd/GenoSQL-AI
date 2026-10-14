@@ -12,7 +12,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from app.nl_query.schema import ALLOWED_COLUMNS, ALLOWED_TABLES, TABLE_COLUMNS
+from app.nl_query.schema import ALLOWED_COLUMNS, ALLOWED_TABLES, CATEGORICAL_VALUES, TABLE_COLUMNS
 
 # Functions that read server state/files, change settings, or reach other DBs.
 DENIED_FUNCTION_PREFIXES = ("pg_", "lo_", "dblink", "txid_")
@@ -48,7 +48,7 @@ def _function_name(node: exp.Func) -> str:
     return node.sql_name().lower()
 
 
-def validate_sql(sql: str) -> tuple[bool, str]:
+def validate_sql(sql: str, check_values: bool = True) -> tuple[bool, str]:
     """Return (ok, reason). `reason` is phrased so it can be fed back to the LLM."""
     try:
         statements = [s for s in sqlglot.parse(sql, read="postgres") if s is not None]
@@ -117,4 +117,35 @@ def validate_sql(sql: str) -> tuple[bool, str]:
             return False, (f"Unknown column '{col.name}' for {', '.join(tables)}.{hint} "
                            f"Valid columns: {', '.join(sorted(set().union(*(TABLE_COLUMNS[t] for t in tables))))}.")
 
+    if check_values:
+        problem = _check_category_values(tree)
+        if problem:
+            return False, problem
+
     return True, "OK"
+
+
+def _check_category_values(tree) -> str | None:
+    """
+    Value linking: `variant_type = 'INS'` is valid SQL that silently returns
+    nothing. Reject literals outside a category column's known values.
+    """
+    def check(col, lit):
+        if not (isinstance(col, exp.Column) and isinstance(lit, exp.Literal) and lit.is_string):
+            return None
+        allowed = CATEGORICAL_VALUES.get(col.name.lower())
+        if allowed is not None and lit.this not in allowed:
+            return (f"'{lit.this}' is not a valid value for {col.name}. "
+                    f"Valid values: {', '.join(sorted(allowed))}.")
+        return None
+
+    for node in tree.find_all(exp.EQ, exp.NEQ):
+        problem = check(node.left, node.right) or check(node.right, node.left)
+        if problem:
+            return problem
+    for node in tree.find_all(exp.In):
+        for lit in node.expressions:
+            problem = check(node.this, lit)
+            if problem:
+                return problem
+    return None

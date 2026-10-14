@@ -1,7 +1,8 @@
 """
 Run the GenoSQL benchmark against one pipeline configuration.
 
-    python -m eval.run_eval                                  # full system, default model
+    python -m eval.run_eval                                  # full system, default model, DEV split
+    python -m eval.run_eval --split test                     # held-out test split: report, never tune
     python -m eval.run_eval --model qwen2.5-coder:3b
     python -m eval.run_eval --no-rag --no-semantic --repairs 0 --tag baseline
     python -m eval.run_eval --only population,sv --limit 5   # quick subset
@@ -27,8 +28,10 @@ RESULTS = HERE / "results"
 EVAL_MAX_ROWS = 5000
 
 
-def load_items(path=BENCHMARK, only=None, limit=None):
+def load_items(path=BENCHMARK, only=None, limit=None, split="all"):
     items = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    if split != "all":
+        items = [i for i in items if i.get("split") == split]
     if only:
         items = [i for i in items if i["category"] in only]
     return items[:limit] if limit else items
@@ -55,7 +58,7 @@ def check_gold(items):
 
 def score(item, out):
     answerable = item.get("gold_sql") is not None
-    rec = {"id": item["id"], "category": item["category"], "difficulty": item["difficulty"],
+    rec = {"id": item["id"], "split": item.get("split"), "category": item["category"], "difficulty": item["difficulty"],
            "question": item["question"], "answerable": answerable,
            "status": out["status"], "sql": out["sql"], "error": out["error"],
            "attempts": out["attempts"], "examples_used": out["examples_used"],
@@ -83,7 +86,8 @@ def summarise(records, cfg, tag):
     pct = lambda xs, key: 100 * sum(r[key] for r in xs) / len(xs) if xs else float("nan")
 
     print(f"\n=== {tag} === model={cfg.model} rag={cfg.use_rag} semantic={cfg.semantic_schema} "
-          f"repairs={cfg.max_repairs} abstain={cfg.allow_abstain}")
+          f"repairs={cfg.max_repairs} abstain={cfg.allow_abstain} routing={cfg.routing_rules} "
+          f"value_check={cfg.value_check} verify_abstain={cfg.verify_abstain}")
     print(f"Execution accuracy (answerable, n={len(answerable)}): "
           f"strict {pct(answerable, 'strict'):.1f}%  relaxed {pct(answerable, 'relaxed'):.1f}%")
     if unanswerable:
@@ -112,17 +116,28 @@ def main():
     p.add_argument("--backend")
     p.add_argument("--no-rag", action="store_true")
     p.add_argument("--no-semantic", action="store_true")
-    p.add_argument("--no-abstain", action="store_true")
+    p.add_argument("--self-abstain", action="store_true", help="offer the model a CANNOT_ANSWER reply")
+    p.add_argument("--no-routing", action="store_true", help="drop answer-shape/routing rules")
+    p.add_argument("--no-value-check", action="store_true", help="guard skips category-value check")
+    p.add_argument("--no-verify-abstain", action="store_true", help="accept the first CANNOT_ANSWER")
+    p.add_argument("--no-grounded-abstain", action="store_true",
+                   help="don't decline when every attempt needs non-existent tables/columns")
     p.add_argument("--repairs", type=int)
+    p.add_argument("--split", choices=["dev", "test", "all"], default="dev",
+                   help="dev for iterating (default); test only for reporting")
     p.add_argument("--only", help="comma-separated categories")
     p.add_argument("--limit", type=int)
     p.add_argument("--tag")
     p.add_argument("--check-gold", action="store_true")
     args = p.parse_args()
 
-    items = load_items(only=set(args.only.split(",")) if args.only else None, limit=args.limit)
     if args.check_gold:
-        return check_gold(items)
+        return check_gold(load_items(split="all"))
+    items = load_items(only=set(args.only.split(",")) if args.only else None, limit=args.limit,
+                       split=args.split)
+    if args.split == "test":
+        print("*** HELD-OUT TEST SPLIT: report these numbers; do not change prompts, seeds or "
+              "schema notes in response to individual test items. ***")
 
     cfg = PipelineConfig(max_rows=EVAL_MAX_ROWS)
     if args.model: cfg.model = args.model
@@ -130,11 +145,20 @@ def main():
     if args.repairs is not None: cfg.max_repairs = args.repairs
     cfg.use_rag = not args.no_rag
     cfg.semantic_schema = not args.no_semantic
-    cfg.allow_abstain = not args.no_abstain
+    cfg.allow_abstain = args.self_abstain
+    cfg.routing_rules = not args.no_routing
+    cfg.value_check = not args.no_value_check
+    cfg.verify_abstain = not args.no_verify_abstain
+    cfg.grounded_abstain = not args.no_grounded_abstain
 
+    # Suffixes mark departures from the default (full) configuration.
     tag = args.tag or (f"{cfg.model.replace(':', '_').replace('/', '_')}"
                        f"{'' if cfg.use_rag else '_norag'}{'' if cfg.semantic_schema else '_nosem'}"
-                       f"_r{cfg.max_repairs}{'' if cfg.allow_abstain else '_noabstain'}")
+                       f"_r{cfg.max_repairs}"
+                       f"{'' if cfg.routing_rules else '_norout'}{'' if cfg.value_check else '_novc'}"
+                       f"{'_selfabs' if cfg.allow_abstain else ''}{'' if cfg.verify_abstain else '_novabs'}"
+                       f"{'' if cfg.grounded_abstain else '_nogabs'}"
+                       f"{'' if args.split == 'all' else '_' + args.split}")
     RESULTS.mkdir(exist_ok=True)
     out_path = RESULTS / f"{tag}.jsonl"
 

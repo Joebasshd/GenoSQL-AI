@@ -70,12 +70,9 @@ def inflate_blocks(raw: bytes) -> list[tuple[int, bytes]]:
     return blocks
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--chrom", default="22")
-    args = p.parse_args()
+def main(chrom: str = "22"):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"clinvar_GRCh37_chr{args.chrom}.vcf.gz"
+    out = OUT_DIR / f"clinvar_GRCh37_chr{chrom}.vcf.gz"
 
     with httpx.Client(follow_redirects=True) as client:
         head = client.head(URL, timeout=60)
@@ -83,9 +80,9 @@ def main():
         print(f"Source: {URL} (Last-Modified: {last_modified}, {int(head.headers['content-length']):,} bytes)")
 
         tbi = fetch(client, URL + ".tbi")
-        lo, hi = chrom_span(tbi, args.chrom)
+        lo, hi = chrom_span(tbi, chrom)
         c_lo, u_lo, c_hi, u_hi = lo >> 16, lo & 0xFFFF, hi >> 16, hi & 0xFFFF
-        print(f"chr{args.chrom}: compressed bytes {c_lo:,}-{c_hi:,} (~{(c_hi - c_lo) / 1e6:.1f} MB)")
+        print(f"chr{chrom}: compressed bytes {c_lo:,}-{c_hi:,} (~{(c_hi - c_lo) / 1e6:.1f} MB)")
 
         header_blocks = inflate_blocks(fetch(client, URL, 0, 4 * MAX_BLOCK - 1))
         header_text = b"".join(d for _, d in header_blocks).decode()
@@ -106,16 +103,18 @@ def main():
         raise RuntimeError("Did not reach the end block — range too short")
 
     lines = [l for l in b"".join(parts).decode().split("\n") if l]
-    bad = [l for l in lines if l.split("\t", 1)[0] != args.chrom]
+    bad = [l for l in lines if l.split("\t", 1)[0] != chrom]
     if bad:
         raise RuntimeError(f"{len(bad)} lines from other chromosomes, e.g. {bad[0][:60]}")
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    header.insert(-1, f"##genosql_slice=chr{args.chrom} of {URL} (Last-Modified {last_modified}), fetched {stamp}")
+    header.insert(-1, f"##genosql_slice=chr{chrom} of {URL} (Last-Modified {last_modified}), fetched {stamp}")
     with gzip.open(out, "wt", encoding="utf-8") as fh:
         fh.write("\n".join(header + lines) + "\n")
     print(f"Wrote {len(lines):,} records -> {out}")
 
 
 if __name__ == "__main__":
-    main()
+    p = argparse.ArgumentParser()
+    p.add_argument("--chrom", default="22")
+    main(p.parse_args().chrom)

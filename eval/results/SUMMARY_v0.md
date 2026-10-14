@@ -32,3 +32,24 @@ Paired McNemar (relaxed): wins A only / wins B only / p
   qwen2.5-coder_3b_norag_nosem_r0 vs qwen2.5-coder_1.5b_r2: 3 / 21 / p=0.000
   qwen2.5-coder_3b_norag_nosem_r0 vs qwen2.5-coder_3b_r2: 1 / 30 / p=0.000
   qwen2.5-coder_1.5b_r2 vs qwen2.5-coder_3b_r2: 7 / 18 / p=0.043
+
+## Per split (split frozen 2026-10-14, after these runs)
+
+Split: dev (23 items)
+
+| run | EX relaxed % | EX strict % | abstain on unanswerable % | false abstain | failed SQL | silent wrong % | median s | tokens/q |
+|---|---|---|---|---|---|---|---|---|
+| qwen2.5-coder_1.5b_norag_nosem_r0 | 14.3 | 14.3 | 0 | 0 | 5 | 65 | 7.8 | 416 |
+| qwen2.5-coder_3b_norag_nosem_r0 | 19.0 | 19.0 | 0 | 1 | 0 | 74 | 8.9 | 410 |
+| qwen2.5-coder_1.5b_r2 | 57.1 | 52.4 | 0 | 0 | 0 | 43 | 8.5 | 2,144 |
+| qwen2.5-coder_3b_r2 | 71.4 | 57.1 | 100 | 3 | 0 | 13 | 13.2 | 1,872 |
+
+Split: test (35 items)
+
+| run | EX relaxed % | EX strict % | abstain on unanswerable % | false abstain | failed SQL | silent wrong % | median s | tokens/q |
+|---|---|---|---|---|---|---|---|---|
+| qwen2.5-coder_1.5b_norag_nosem_r0 | 16.1 | 16.1 | 0 | 0 | 9 | 54 | 6.9 | 426 |
+| qwen2.5-coder_3b_norag_nosem_r0 | 12.9 | 12.9 | 25 | 2 | 3 | 71 | 11.0 | 413 |
+| qwen2.5-coder_1.5b_r2 | 48.4 | 38.7 | 0 | 1 | 1 | 46 | 10.5 | 2,303 |
+| qwen2.5-coder_3b_r2 | 54.8 | 51.6 | 100 | 5 | 0 | 26 | 14.4 | 1,876 |
+
