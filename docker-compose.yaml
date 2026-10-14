@@ -1,12 +1,35 @@
 services:
   db:
-    image: ankane/pgvector:latest
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - genosql_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Optional: run the API in a container. Expects Ollama on the host.
+  #   docker compose --profile app up
+  app:
+    profiles: ["app"]
+    build: .
     env_file: .env
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASS}
-      - POSTGRES_DB=${DB_NAME}
+      DB_HOST: db
+      DB_PORT: 5432
+      OLLAMA_HOST: http://host.docker.internal:11434
     ports:
-      - "5433:5432"
-    volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  genosql_pgdata:

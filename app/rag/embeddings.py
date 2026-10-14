@@ -1,4 +1,4 @@
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+from app import config
 
 # Lazy loading: module and model are only imported/loaded on first use
 _model = None
@@ -12,15 +12,17 @@ def _get_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME)
+        _model = SentenceTransformer(config.EMBEDDING_MODEL)
     return _model
 
 
 def embed_text(text: str) -> list:
     """
-    Generate embedding vector for text.
+    Generate a normalised embedding vector for text.
     """
-    model = _get_model()
-    vector = model.encode(text)
+    return _get_model().encode(text, normalize_embeddings=True).tolist()
 
-    return vector.tolist()
+
+def to_pgvector(vector: list) -> str:
+    """pgvector text literal, for binding as a parameter and casting with ::vector."""
+    return "[" + ",".join(f"{x:.7f}" for x in vector) + "]"
