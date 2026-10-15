@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use GenoSQL-AI or GenoSQL-Bench, please cite it as below."
+title: "GenoSQL-AI: natural-language querying of population-genomic variant data with small local LLMs"
+type: software
+authors:
+  - family-names: Edet
+    given-names: Joseph
+repository-code: "https://github.com/Joebasshd/GenoSQL-AI"
+keywords:
+  - text-to-SQL
+  - genomics
+  - 1000 Genomes
+  - ClinVar
+  - small language models
+  - benchmark
