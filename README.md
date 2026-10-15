@@ -1,5 +1,7 @@
 # GenoSQL-AI
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23389384.svg)](https://doi.org/10.5281/zenodo.23389384)
+
 Ask questions about human genetic variation in plain English and get answers from a real database — using a small open-source LLM that runs **entirely on your own laptop**. No GPU, no cloud account, no API key, $0 per query.
 
 > *"Among APOL1 variants in ClinVar that also appear in 1000 Genomes, what is the highest African allele frequency?"*
