@@ -8,3 +8,4 @@ data/*.tbi
 .pytest_cache/
 data/clinvar/
 data/reference/
+eval/generation/cache/

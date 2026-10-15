@@ -125,6 +125,9 @@ def main():
     p.add_argument("--repairs", type=int)
     p.add_argument("--split", choices=["dev", "test", "all"], default="dev",
                    help="dev for iterating (default); test only for reporting")
+    p.add_argument("--phrasing", choices=["standard", "lay"], default="standard",
+                   help="lay: ask the non-expert paraphrase (items that have one)")
+    p.add_argument("--source", choices=["all", "hand", "generated"], default="all")
     p.add_argument("--only", help="comma-separated categories")
     p.add_argument("--limit", type=int)
     p.add_argument("--tag")
@@ -135,6 +138,10 @@ def main():
         return check_gold(load_items(split="all"))
     items = load_items(only=set(args.only.split(",")) if args.only else None, limit=args.limit,
                        split=args.split)
+    if args.source != "all":
+        items = [i for i in items if i.get("source", "hand") == args.source]
+    if args.phrasing == "lay":
+        items = [{**i, "question": i["question_lay"]} for i in items if i.get("question_lay")]
     if args.split == "test":
         print("*** HELD-OUT TEST SPLIT: report these numbers; do not change prompts, seeds or "
               "schema notes in response to individual test items. ***")
@@ -158,6 +165,8 @@ def main():
                        f"{'' if cfg.routing_rules else '_norout'}{'' if cfg.value_check else '_novc'}"
                        f"{'_selfabs' if cfg.allow_abstain else ''}{'' if cfg.verify_abstain else '_novabs'}"
                        f"{'' if cfg.grounded_abstain else '_nogabs'}"
+                       f"{'' if args.phrasing == 'standard' else '_' + args.phrasing}"
+                       f"{'' if args.source == 'all' else '_' + args.source}"
                        f"{'' if args.split == 'all' else '_' + args.split}")
     RESULTS.mkdir(exist_ok=True)
     out_path = RESULTS / f"{tag}.jsonl"

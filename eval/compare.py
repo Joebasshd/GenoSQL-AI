@@ -5,6 +5,8 @@ strict : same number of columns; rows equal as a multiset (column order may diff
 relaxed: every gold column is matched by some predicted column; extra predicted
          columns are allowed (e.g. the model also returned rsid)
 Row order is ignored unless `ordered=True` (questions that ask for a ranking).
+relaxed also accepts the same numbers in long vs wide layout, e.g. one row per
+genotype class [(1, 242), (2, 53)] vs a single row (242, 53).
 """
 from collections import Counter
 from decimal import Decimal
@@ -54,7 +56,7 @@ def _match_columns(gold, pred, n_gold, n_pred):
 def results_match(gold_rows, pred_rows, ordered: bool = False) -> dict:
     gold, pred = _rows(gold_rows), _rows(pred_rows)
     if len(gold) != len(pred):
-        return {"strict": False, "relaxed": False}
+        return {"strict": False, "relaxed": _pivot_equal(gold, pred)}
     if not gold:
         return {"strict": True, "relaxed": True}
 
@@ -77,6 +79,16 @@ def results_match(gold_rows, pred_rows, ordered: bool = False) -> dict:
 
     ok = _project(pred, mapping, ordered) == _project(gold, list(range(n_gold)), ordered)
     return {"strict": ok and n_pred == n_gold, "relaxed": ok}
+
+
+def _pivot_equal(a, b):
+    """One side is a single row of k >= 2 values; the other has k rows, one column of which holds those values."""
+    if len(a) != 1:
+        a, b = b, a
+    if len(a) != 1 or not b or len(a[0]) < 2 or len(a[0]) != len(b):
+        return False
+    wide = Counter(a[0])
+    return any(Counter(r[j] for r in b) == wide for j in range(len(b[0])))
 
 
 def _project(rows, cols, ordered):
