@@ -5,6 +5,8 @@ type: software
 authors:
   - family-names: Edet
     given-names: Joseph
+  - family-names: Ejike
+    given-names: Uchenna Splendor
 repository-code: "https://github.com/Joebasshd/GenoSQL-AI"
 keywords:
   - text-to-SQL
