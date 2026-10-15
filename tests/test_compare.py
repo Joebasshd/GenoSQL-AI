@@ -35,3 +35,12 @@ def test_row_alignment_matters_not_just_columns():
     gold = [(1, "a"), (2, "b")]
     pred = [(1, "b"), (2, "a")]          # same column multisets, wrong pairing
     assert not results_match(gold, pred)["relaxed"]
+
+
+def test_long_and_wide_layouts_match_relaxed():
+    long = [(1, 242), (2, 53)]
+    wide = [(242, 53)]
+    assert results_match(long, wide) == {"strict": False, "relaxed": True}
+    assert results_match(wide, long)["relaxed"]
+    assert not results_match(long, [(242, 54)])["relaxed"]
+    assert not results_match([(5,)], [(5,), (6,)])["relaxed"]

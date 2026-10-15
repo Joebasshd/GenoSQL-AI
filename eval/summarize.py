@@ -53,14 +53,18 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("tags", nargs="*")
     p.add_argument("--split", choices=["dev", "test", "all"], default="all")
+    p.add_argument("--source", choices=["hand", "generated", "all"], default="all")
     args = p.parse_args()
     tags = args.tags or sorted(p.stem for p in RESULTS.glob("*.jsonl"))
     runs = {t: load(t) for t in tags}
-    if args.split != "all":
-        # Older runs predate the split; map ids through the current benchmark.
-        split_of = {i["id"]: i.get("split") for i in map(json.loads, BENCHMARK.read_text(encoding="utf-8").splitlines()) if i}
-        runs = {t: [r for r in recs if split_of.get(r["id"]) == args.split] for t, recs in runs.items()}
-        print(f"Split: {args.split} ({len(next(iter(runs.values())))} items)\n")
+    if args.split != "all" or args.source != "all":
+        # Older runs predate these fields; map ids through the current benchmark.
+        bench = {i["id"]: i for i in map(json.loads, BENCHMARK.read_text(encoding="utf-8").splitlines()) if i}
+        keep = lambda r: (r["id"] in bench
+                          and args.split in ("all", bench[r["id"]].get("split"))
+                          and args.source in ("all", bench[r["id"]].get("source", "hand")))
+        runs = {t: [r for r in recs if keep(r)] for t, recs in runs.items()}
+        print(f"Split: {args.split}, source: {args.source} ({len(next(iter(runs.values())))} items)\n")
     print("| run | EX relaxed % | EX strict % | abstain on unanswerable % | false abstain | failed SQL | silent wrong % | median s | tokens/q |")
     print("|---|---|---|---|---|---|---|---|---|")
     for t, recs in runs.items():

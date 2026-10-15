@@ -26,6 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "benchmark.jsonl"
 SPLITS = HERE / "splits.json"
+GENERATED = HERE / "generated_items.jsonl"
 DEV_FRACTION = 0.4
 
 ITEMS = [
@@ -269,9 +270,27 @@ def build():
                 "gold_sql": gold + ";" if gold else None}
         if rest and rest[0]:
             item["ordered"] = True
+        item["source"] = "hand"
         items.append(item)
 
-    dupes = sorted({i["id"] for i in items if sum(j["id"] == i["id"] for j in items) > 1})
+    # Phase 2: items written by the Gemini author and confirmed by the reviewer
+    # (scripts/generate_benchmark.py), appended in acceptance order.
+    if GENERATED.exists():
+        for line in GENERATED.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            g = json.loads(line)
+            cat = g["category"]
+            counters[cat] = counters.get(cat, 0) + 1
+            item = {"id": f"{cat[:3].upper()}{counters[cat]:02d}", "category": cat,
+                    "difficulty": g["difficulty"], "question": g["question"], "gold_sql": g["gold_sql"],
+                    "question_lay": g.get("question_lay") or None, "source": "generated",
+                    "agreement": g.get("agreement")}
+            if g.get("ordered"):
+                item["ordered"] = True
+            items.append(item)
+
+    dupes =sorted({i["id"] for i in items if sum(j["id"] == i["id"] for j in items) > 1})
     if dupes:
         raise SystemExit(f"Duplicate ids {dupes}: category names must differ in their first 3 letters")
 

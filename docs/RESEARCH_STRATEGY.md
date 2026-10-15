@@ -180,6 +180,30 @@ Full tables: [eval/results/SUMMARY_v1.md](../eval/results/SUMMARY_v1.md). Test s
 - Next for the paper: grow the benchmark (Phase 2) so the test split is large enough to separate configurations
   (current n gives wide intervals), and add fresh test items never inspected during development.
 
+### Held-out TEST results, benchmark v2 (148 items; configuration frozen since v1)
+
+Full tables: [eval/results/SUMMARY_v2.md](../eval/results/SUMMARY_v2.md). Benchmark: [eval/BENCHMARK.md](../eval/BENCHMARK.md).
+
+| test (134 answerable + 14 unanswerable) | bare | full | full, 105 never-inspected items |
+|---|---|---|---|
+| 1.5B | 8.2 % | 33.6 % | 24.2 % |
+| 3B | 14.9 % | **53.0 %** | 49.5 % |
+
+- **The pipeline effect replicates on 3× more, fresh items**: 3B 61/4 wins/losses vs bare, 1.5B 43/3 (p < 0.001).
+- **The larger benchmark overturned a v1 conclusion.** On v1 (31 answerable test items) 1.5B ≈ 3B (p = 0.75);
+  on v2 3B beats 1.5B 33/7 (p < 0.001). Mostly on the new items (49.5 % vs 24.2 %) and through abstention:
+  grounded abstention fires 30 times on answerable items for 1.5B (it invents schema even when an answer
+  exists) vs 10 for 3B. Small, development-adjacent test sets can mislead — the main argument for Phase 2.
+- **Hand items reproduce v1 exactly** (3B 61.5 %, 1.5B 56.4 %), confirming the pipeline itself is unchanged;
+  the drop to 53 % overall comes from harder, unseen questions.
+- **Hardest skills**: carrier genotypes (1/10), multi-step (2/11), ClinVar×1000G joins (3/14), ClinVar (4/13).
+  Easiest: frequency classes, genes via `variant_genes`, structural variants (≥ 6/7).
+- **Phrasing robustness**: the same questions asked in plain biologist language drop 3B from 49.5 % to 36.8 %
+  (20/9, p = 0.061) — the target users don't speak the schema; vocabulary mapping is clear future work.
+- **Trust**: ~40 % of all test items still end with a wrong but valid-looking table ("silent wrong"); correct
+  declines on unanswerables 6/14 for both models. Showing the SQL and the ✓/✗ loop are not optional.
+- Caveats: annotators were LLMs (92.1 % agreement, adjudicated); human expert review of a sample is pending.
+
 ## 4. Roadmap
 
 ### Phase 1 — Data breadth ✅ (completed 2026-10-14)
@@ -197,12 +221,15 @@ Full tables: [eval/results/SUMMARY_v1.md](../eval/results/SUMMARY_v1.md). Test s
 - Deferred: dbSNP rsIDs for all 1000G variants (requires the ~200 MB v5b chr22 VCF). ClinVar supplies rsIDs
   for its 63 k variants. Genotypes for all variants (~10⁸ rows) are out of scope for the laptop target.
 
-### Phase 2 — Benchmark (2–3 weeks)
+### Phase 2 — Benchmark ✅ (v2 frozen 2026-10-15; datasheet: [eval/BENCHMARK.md](../eval/BENCHMARK.md))
 
-- [ ] Grow `eval/benchmark.jsonl` to 150–250 items; ~20 % multi-table joins, ~10 % unanswerable.
-- [ ] Two annotators write/review gold SQL independently; record agreement.
-- [ ] Paraphrase set: each question in 2 phrasings (lay vs expert) → robustness.
-- [ ] Freeze v1, publish on GitHub/Zenodo with DOI.
+- [x] 246 items (73 hand + 173 generated); 38 % multi-table/subquery, 9 % unanswerable; 98 dev / 148 test.
+- [x] Two independent annotators (Gemini author + different Gemini reviewer, free tier) with execution-match
+  agreement **92.1 %** (178 reviewed); 14 disputes adjudicated with written notes; 3 duplicates excluded.
+- [x] Lay paraphrase for every generated item (173) → `run_eval --phrasing lay`.
+- [x] Frozen in git (commit `4a146d5`) before any model was run on v2.
+- [ ] Human expert review of a random sample (e.g. 40 items) — annotators were LLMs; report the error rate found.
+- [ ] Add a LICENSE (suggest MIT for code, CC-BY-4.0 for the benchmark), tag `v2.0`, archive on Zenodo for a DOI.
 
 ### Phase 3 — Experiments (2 weeks, mostly unattended compute)
 

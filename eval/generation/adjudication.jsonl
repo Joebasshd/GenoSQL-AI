@@ -1,0 +1,18 @@
+{"key": "region-3e484a13", "decision": "reviewer", "note": "author rounded unprompted; 'between' read as pos BETWEEN (hand-item convention)", "adjudicator": "claude (third annotator)"}
+{"key": "sv-0cf657d4", "decision": "reviewer", "note": "author rounded unprompted", "adjudicator": "claude (third annotator)"}
+{"key": "json-bc1abf31", "decision": "reviewer", "note": "author rounded unprompted; question does not ask for an order", "adjudicator": "claude (third annotator)"}
+{"key": "multistep-a4e19c4a", "decision": "reviewer", "note": "author rounded unprompted", "adjudicator": "claude (third annotator)"}
+{"key": "multistep-05e53b2d", "decision": "reviewer", "note": "labels as database codes (AFR...) rather than author-invented names", "adjudicator": "claude (third annotator)"}
+{"key": "multistep-41c1ac15", "decision": "drop", "note": "answer depends on invented label strings; not scoreable by execution match", "adjudicator": "claude (third annotator)"}
+{"key": "multistep-b8fc1217", "decision": "drop", "note": "ambiguous: 'distinct alternate alleles' = variants carried or allele copies", "adjudicator": "claude (third annotator)"}
+{"key": "clinvar-c7f35e3a", "decision": "reviewer", "note": "author rounded unprompted", "adjudicator": "claude (third annotator)"}
+{"key": "join-753aef53", "decision": "reviewer", "note": "author restricted to 1000G and exact-matched CLNSIG, missing 'Conflicting...|risk factor'", "adjudicator": "claude (third annotator)"}
+{"key": "join-085fb6d8", "decision": "reviewer", "note": "carriers are individuals (COUNT), not allele copies (SUM)", "adjudicator": "claude (third annotator)"}
+{"key": "join-0da8f4e4", "decision": "reviewer", "note": "question asks for the rsIDs, author applied an arbitrary LIMIT 10", "adjudicator": "claude (third annotator)"}
+{"key": "join-56e94db8", "decision": "sql", "sql": "SELECT v.chrom, v.pos, v.ref, v.alt, v.sas_af FROM variants v JOIN variant_genes vg ON vg.variant_id = v.id JOIN genes g ON g.gene_id = vg.gene_id WHERE g.gene_name = 'TRMU' ORDER BY v.sas_af DESC LIMIT 1;", "note": "author returned internal id; reviewer limited to ClinVar variants; question covers all TRMU variants", "adjudicator": "claude (third annotator)"}
+{"key": "join-96054ee9", "decision": "reviewer", "note": "question asks for a single population", "adjudicator": "claude (third annotator)"}
+{"key": "samples-afa3bf0c", "decision": "reviewer", "note": "'ratio' is a single number", "adjudicator": "claude (third annotator)"}
+{"key": "aggregation-46e77465", "decision": "exclude", "note": "duplicate of hand item POP01 (same query, same answer)", "adjudicator": "claude (third annotator)"}
+{"key": "aggregation-f4345a56", "decision": "exclude", "note": "duplicate of hand item JSO01 (same query, same answer)", "adjudicator": "claude (third annotator)"}
+{"key": "population-e54a0fb6", "decision": "exclude", "note": "duplicate of a seed example (RAG would retrieve the answer)", "adjudicator": "claude (third annotator)"}
+{"key": "region-8c1e6127", "decision": "sql", "sql": "SELECT variant_type, COUNT(*) AS variant_count FROM variants WHERE chrom = '22' AND pos BETWEEN 50000000 AND 51000000 GROUP BY variant_type ORDER BY variant_count DESC, variant_type ASC;", "note": "'between positions' read as pos BETWEEN, consistent with hand items; overlap reading differs", "adjudicator": "claude (third annotator)"}

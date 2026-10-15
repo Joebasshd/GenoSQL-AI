@@ -29,7 +29,8 @@ def chat(messages: list[dict], model: str | None = None, backend: str | None = N
         r = httpx.post(
             f"{config.OLLAMA_HOST}/api/chat",
             json={"model": model, "messages": messages, "stream": False,
-                  "options": {"temperature": 0, "seed": 42, "num_ctx": config.LLM_NUM_CTX}},
+                  "options": {"temperature": 0, "seed": 42, "num_ctx": config.LLM_NUM_CTX,
+                              "num_predict": config.LLM_MAX_TOKENS}},
             timeout=600,
         )
         r.raise_for_status()
@@ -41,7 +42,7 @@ def chat(messages: list[dict], model: str | None = None, backend: str | None = N
         headers = {"Authorization": f"Bearer {config.OPENAI_API_KEY}"} if config.OPENAI_API_KEY else {}
         r = httpx.post(
             f"{config.OPENAI_BASE_URL.rstrip('/')}/chat/completions",
-            json={"model": model, "messages": messages, "temperature": 0},
+            json={"model": model, "messages": messages, "temperature": 0, "max_tokens": config.LLM_MAX_TOKENS},
             headers=headers, timeout=600,
         )
         r.raise_for_status()

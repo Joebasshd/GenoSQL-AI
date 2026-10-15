@@ -1,0 +1,59 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 1722.70it/s]
+[1mBertModel LOAD REPORT[0m from: sentence-transformers/all-MiniLM-L6-v2
+Key                     | Status     |  | 
+------------------------+------------+--+-
+embeddings.position_ids | UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.[0m
+[json] round 1: have 0/5, asking for 8
+  gemini-3.7-flash: daily quota used up, switching model
+  accepted  How many variants in the APOL1 gene fall within the exome capture target?
+  accepted  Which 5 protein-coding genes on chromosome 22 have the highest number of variants located 
+  accepted  How many common single nucleotide polymorphisms (global allele frequency of at least 5%) o
+  accepted  How many single nucleotide polymorphisms on chromosome 22 have a low-confidence ancestral 
+  accepted  What are the structural variant call sets recorded on chromosome 22 and how many structura
+  disputed  For structural variants that have a recorded length, what is the average absolute length i
+  accepted  How many small indels on chromosome 22 located within the exome capture target are rare, h
+  accepted  What is the frequency breakdown of high-confidence ancestral bases (A, C, G, or T) among s
+[multistep] round 1: have 0/10, asking for 15
+  accepted  Which 5 protein-coding genes on chromosome 22 have the highest number of rare single nucle
+  accepted  Among genes with at least 50 pathogenic ClinVar variants on chromosome 22, which gene has 
+  disputed  Find the top 3 1000 Genomes populations with the highest carrier prevalence (percentage of
+  accepted  What is the rank and alternate allele frequency of the most common ClinVar pathogenic vari
+  disputed  For each continental super-population, count how many structural deletion variants (DEL) h
+  accepted  Find the gene on chromosome 22 with the largest difference between its total number of var
+  disputed  Calculate the average length (in base pairs) of protein-coding genes grouped by whether th
+  accepted  Identify the top 3 African-ancestry populations with the highest average alternate allele 
+  accepted  What is the median length in base pairs of all structural deletion variants (DEL) on chrom
+  accepted  How many variants in the 1000 Genomes Project overlap both the gene CHEK2 and have an alte
+  accepted  List the top 5 genes on chromosome 22 that have the greatest number of ClinVar variants an
+  disputed  Find the sample ID and population of the individual who carries the highest number of dist
+  accepted  Among all insertion variants (INDELs where the alternate allele is longer than the referen
+[multistep] round 2: have 9/10, asking for 4
+  gemini-3.8-flash: HTTP 503, retrying in 15s
+  accepted  Across each continental super-population, what is the average number of ClinVar pathogenic
+  accepted  For the gene on chromosome 22 with the most pathogenic ClinVar variants, count how many 10
+  accepted  For each structural variant type on chromosome 22 that has at least 10 occurrences, find i
+  accepted  Rank the top 10 genes on chromosome 22 with the most pathogenic ClinVar variants. For each
+[clinvar] round 1: have 0/12, asking for 16
+  accepted  What is the ClinVar review status and number of review stars for the variant with dbSNP ID
+  accepted  How many pathogenic ClinVar variants are associated with 'Neurofibromatosis, type 2'?
+  accepted  How many pathogenic variants in the NF2 gene have a frameshift consequence?
+  accepted  What gene, condition, and clinical significance are documented in ClinVar for rs73429494?
+  accepted  For each clinical significance class, how many ClinVar variants are there?
+  accepted  How many ClinVar variants are annotated with a de novo origin?
+  accepted  What are the distinct variant classes present in ClinVar for the gene LZTR1, and how many 
+  accepted  How many ClinVar variants in the ARSA gene are classified as pathogenic and have at least 
+  accepted  How many nonsense variants in the SHANK3 gene are reported in ClinVar?
+  accepted  Which genes have more than 100 pathogenic ClinVar variants with at least 2 review stars, a
+  disputed  For each review star rating, what percentage of ClinVar variants are pathogenic?
+  accepted  How many ClinVar variants in the DEPDC5 gene are classified as likely pathogenic?
+  accepted  How many ClinVar variants are associated with 'Metachromatic leukodystrophy'?
+[join] round 1: have 0/14, asking for 16
+  gemini-3.8-flash: daily quota used up, switching model
+  gemini-flash-latest: daily quota used up, switching model
+  gemini-3.5-flash: HTTP 503, retrying in 15s
+  gemini-3.5-flash: HTTP 503, retrying in 30s
+  gemini-3.5-flash: HTTP 503, retrying in 60s
+  gemini-3.5-flash: HTTP 503, retrying in 120s
