@@ -87,3 +87,15 @@ def test_category_check_can_be_disabled_and_allows_valid_values():
     assert validate_sql("SELECT 1 FROM variants WHERE variant_type = 'INS';", check_values=False)[0]
     assert validate_sql("SELECT 1 FROM variants WHERE variant_type IN ('SNP', 'INDEL') AND sex IS NULL;")[0] is False  # sex not in variants
     assert validate_sql("SELECT COUNT(*) FROM samples s WHERE s.sex = 'female' AND s.super_population = 'AFR';")[0]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT version();",
+    "SELECT current_user;",
+    "SELECT session_user;",
+    "SELECT current_database();",
+    "SELECT inet_server_addr();",
+])
+def test_rejects_server_identity_functions(sql):
+    ok, reason = validate_sql(sql)
+    assert not ok and "not allowed" in reason, reason

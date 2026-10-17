@@ -18,7 +18,11 @@ from app.nl_query.schema import ALLOWED_COLUMNS, ALLOWED_TABLES, CATEGORICAL_VAL
 DENIED_FUNCTION_PREFIXES = ("pg_", "lo_", "dblink", "txid_")
 DENIED_FUNCTIONS = {
     "set_config", "current_setting", "query_to_xml", "query_to_xmlschema",
-    "table_to_xml", "cursor_to_xml", "database_to_xml", "copy", "version",
+    "table_to_xml", "cursor_to_xml", "database_to_xml", "copy",
+    # server identity: sqlglot normalises e.g. version() to CURRENT_VERSION
+    "version", "current_version", "current_user", "session_user", "user", "current_database",
+    "current_schema", "current_schemas", "inet_server_addr", "inet_server_port",
+    "inet_client_addr", "inet_client_port",
 }
 
 WRITE_NODES = (
