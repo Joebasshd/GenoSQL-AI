@@ -88,7 +88,8 @@ def main():
     random.Random(args.seed).shuffle(pool)
     items = sorted(pool[:args.n], key=lambda i: i["id"])
     cfg = PipelineConfig(model=args.model, max_rows=EVAL_MAX_ROWS)
-    work = RESULTS / "memory_sim_work" / f"{args.model.replace(':', '_')}_n{args.n}_seed{args.seed}"
+    # keyed without n: results are per item id, so a smaller n reuses work already done
+    work = RESULTS / "memory_sim_work" / f"{args.model.replace(':', '_')}_seed{args.seed}"
     work.mkdir(parents=True, exist_ok=True)
 
     print(f"Phase 1: {len(items)} expert-phrased questions, seed-only memory")

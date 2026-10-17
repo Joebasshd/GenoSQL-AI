@@ -12,6 +12,7 @@ Each run writes eval/results/<tag>.jsonl (one line per item) and prints a summar
 Evaluation never writes to RAG memory; items are excluded from retrieving themselves.
 """
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -36,6 +37,22 @@ def load_items(path=BENCHMARK, only=None, limit=None, split="all"):
     if only:
         items = [i for i in items if i["category"] in only]
     return items[:limit] if limit else items
+
+
+def stratified_subset(items: list[dict], n: int) -> list[dict]:
+    """Deterministic, category-stratified sample of n items (same ids every time for the same input)."""
+    if n >= len(items):
+        return items
+    by_cat = defaultdict(list)
+    for item in sorted(items, key=lambda i: hashlib.sha1(i["id"].encode()).hexdigest()):
+        by_cat[item["category"]].append(item)
+    quota = {c: max(1, round(n * len(v) / len(items))) for c, v in by_cat.items()}
+    while sum(quota.values()) > n:
+        quota[max(quota, key=quota.get)] -= 1
+    while sum(quota.values()) < n:
+        quota[max(by_cat, key=lambda c: len(by_cat[c]) - quota[c])] += 1
+    chosen = {i["id"] for c, v in by_cat.items() for i in v[:quota[c]]}
+    return [i for i in items if i["id"] in chosen]
 
 
 def check_gold(items):
@@ -134,12 +151,15 @@ def main():
     p.add_argument("--tag")
     p.add_argument("--check-gold", action="store_true")
     p.add_argument("--resume", action="store_true", help="continue an interrupted run with the same tag")
+    p.add_argument("--subset", type=int, help="fixed category-stratified sample of N items")
     args = p.parse_args()
 
     if args.check_gold:
         return check_gold(load_items(split="all"))
     items = load_items(only=set(args.only.split(",")) if args.only else None, limit=args.limit,
                        split=args.split)
+    if args.subset:
+        items = stratified_subset(items, args.subset)
     if args.source != "all":
         items = [i for i in items if i.get("source", "hand") == args.source]
     if args.phrasing == "lay":

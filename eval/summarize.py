@@ -54,9 +54,16 @@ def main():
     p.add_argument("tags", nargs="*")
     p.add_argument("--split", choices=["dev", "test", "all"], default="all")
     p.add_argument("--source", choices=["hand", "generated", "all"], default="all")
+    p.add_argument("--subset", type=int, help="restrict to run_eval's fixed stratified test subset of N items")
     args = p.parse_args()
     tags = args.tags or sorted(p.stem for p in RESULTS.glob("*.jsonl"))
     runs = {t: load(t) for t in tags}
+    if args.subset:
+        from eval.run_eval import load_items, stratified_subset
+        keep_ids = {i["id"] for i in stratified_subset(load_items(split=args.split if args.split != "all" else "test"),
+                                                       args.subset)}
+        runs = {t: [r for r in recs if r["id"] in keep_ids] for t, recs in runs.items()}
+        print(f"Fixed subset: {len(keep_ids)} items\n")
     if args.split != "all" or args.source != "all":
         # Older runs predate these fields; map ids through the current benchmark.
         bench = {i["id"]: i for i in map(json.loads, BENCHMARK.read_text(encoding="utf-8").splitlines()) if i}
