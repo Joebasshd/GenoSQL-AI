@@ -13,6 +13,7 @@ Evaluation never writes to RAG memory; items are excluded from retrieving themse
 """
 import argparse
 import json
+import os
 import statistics
 import time
 from collections import defaultdict
@@ -132,6 +133,7 @@ def main():
     p.add_argument("--limit", type=int)
     p.add_argument("--tag")
     p.add_argument("--check-gold", action="store_true")
+    p.add_argument("--resume", action="store_true", help="continue an interrupted run with the same tag")
     args = p.parse_args()
 
     if args.check_gold:
@@ -172,14 +174,32 @@ def main():
     out_path = RESULTS / f"{tag}.jsonl"
 
     records = []
+    if args.resume and out_path.exists():
+        # Keep records already written by an interrupted run; os.fsync per line means
+        # at most the item in flight is lost.
+        valid_ids = {i["id"] for i in items}
+        for line in out_path.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                break  # partial last line from a crash
+            if rec["id"] in valid_ids:
+                records.append(rec)
+        print(f"Resuming: {len(records)}/{len(items)} items already done")
+    done = {r["id"] for r in records}
+    out_path.write_text("".join(json.dumps(r, default=str) + "\n" for r in records), encoding="utf-8")
+
     started = time.time()
-    with out_path.open("w", encoding="utf-8") as fh:
+    with out_path.open("a", encoding="utf-8") as fh:
         for i, item in enumerate(items, 1):
+            if item["id"] in done:
+                continue
             out = answer_question(item["question"], cfg, exclude_question=item["question"])
             rec = score(item, out)
             records.append(rec)
             fh.write(json.dumps(rec, default=str) + "\n")
             fh.flush()
+            os.fsync(fh.fileno())
             mark = "ok" if rec["relaxed"] else "--"
             print(f"[{i}/{len(items)}] {mark} {item['id']:<6} {rec['status']:<9} "
                   f"{rec['latency_ms'] / 1000:5.1f}s  {item['question'][:70]}")

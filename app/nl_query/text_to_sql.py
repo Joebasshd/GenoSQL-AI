@@ -12,6 +12,7 @@ evaluation harness uses for ablations.
 import re
 import time
 from dataclasses import dataclass, field
+from typing import Callable
 
 import psycopg2
 
@@ -45,6 +46,7 @@ class PipelineConfig:
     grounded_abstain: bool = True       # decline when every attempt needs tables/columns that don't exist
     rag_k: int = field(default_factory=lambda: config.RAG_K)
     max_rows: int = field(default_factory=lambda: config.MAX_ROWS)
+    retriever: Callable | None = None   # (question, k, exclude_question) -> rows; default: pgvector memory
 
 
 def system_prompt(cfg: PipelineConfig) -> str:
@@ -98,7 +100,8 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
 
     examples = []
     if cfg.use_rag:
-        examples = retrieve_similar_examples(question, k=cfg.rag_k, exclude_question=exclude_question)
+        retrieve = cfg.retriever or retrieve_similar_examples
+        examples = retrieve(question, k=cfg.rag_k, exclude_question=exclude_question)
     out["examples_used"] = len(examples)
 
     messages = [
