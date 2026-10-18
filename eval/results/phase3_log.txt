@@ -1,0 +1,62 @@
+##### v2_05b_full_sub60 19:57
+=== v2_05b_full_sub60 === model=qwen2.5-coder:0.5b rag=True semantic=True repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 13.0%  relaxed 14.8%
+Correct abstention (unanswerable, n=6): 16.7%
+False abstentions: 14   Invalid/failed SQL: 5   Repaired (>1 attempt & correct): 0
+Wall time 1,317s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_05b_full_sub60.jsonl
+##### memory_sim 20:19
+Phase 1: 30 expert-phrased questions, seed-only memory
+  resuming phase1.jsonl: 27/30 done
+Phase 1 accuracy 56.7%; 12 answers were wrong but executed (these poison 'auto' memory)
+  none       lay accuracy 46.7%   copied phase-1 errors 2/12
+  auto       lay accuracy 56.7%   copied phase-1 errors 7/12
+  verified   lay accuracy 56.7%   copied phase-1 errors 0/12
+  corrected  lay accuracy 86.7%   copied phase-1 errors 0/12
+  McNemar none vs auto: 3/6  p=0.508
+  McNemar none vs verified: 2/5  p=0.453
+  McNemar auto vs verified: 2/2  p=1.000
+  McNemar verified vs corrected: 0/9  p=0.004
+-> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\memory_sim_qwen2.5-coder_3b_n30.json
+##### v2_llama32_3b_full_sub60 21:29
+=== v2_llama32_3b_full_sub60 === model=llama3.2:3b rag=True semantic=True repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 29.6%  relaxed 31.5%
+Correct abstention (unanswerable, n=6): 0.0%
+False abstentions: 5   Invalid/failed SQL: 2   Repaired (>1 attempt & correct): 2
+Wall time 2,498s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_llama32_3b_full_sub60.jsonl
+##### v2_phi4mini_full_sub60 22:11
+=== v2_phi4mini_full_sub60 === model=phi4-mini rag=True semantic=True repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 18.5%  relaxed 27.8%
+Correct abstention (unanswerable, n=6): 33.3%
+False abstentions: 7   Invalid/failed SQL: 8   Repaired (>1 attempt & correct): 2
+Wall time 2,991s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_phi4mini_full_sub60.jsonl
+##### v2_3b_abl_nosemantic_sub60 23:01
+=== v2_3b_abl_nosemantic_sub60 === model=qwen2.5-coder:3b rag=True semantic=False repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 27.8%  relaxed 40.7%
+Correct abstention (unanswerable, n=6): 0.0%
+False abstentions: 3   Invalid/failed SQL: 5   Repaired (>1 attempt & correct): 1
+Wall time 1,258s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_3b_abl_nosemantic_sub60.jsonl
+##### v2_3b_abl_norag_sub60 23:22
+=== v2_3b_abl_norag_sub60 === model=qwen2.5-coder:3b rag=False semantic=True repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 37.0%  relaxed 42.6%
+Correct abstention (unanswerable, n=6): 33.3%
+False abstentions: 9   Invalid/failed SQL: 2   Repaired (>1 attempt & correct): 2
+Wall time 1,161s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_3b_abl_norag_sub60.jsonl
+##### v2_3b_abl_norepair_sub60 23:42
+=== v2_3b_abl_norepair_sub60 === model=qwen2.5-coder:3b rag=True semantic=True repairs=0 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 38.9%  relaxed 51.9%
+Correct abstention (unanswerable, n=6): 33.3%
+False abstentions: 8   Invalid/failed SQL: 4   Repaired (>1 attempt & correct): 0
+Wall time 1,024s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_3b_abl_norepair_sub60.jsonl
+##### v2_3b_abl_norouting_sub60 23:59
+=== v2_3b_abl_norouting_sub60 === model=qwen2.5-coder:3b rag=True semantic=True repairs=2 abstain=False routing=False value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 33.3%  relaxed 46.3%
+Correct abstention (unanswerable, n=6): 0.0%
+False abstentions: 4   Invalid/failed SQL: 6   Repaired (>1 attempt & correct): 0
+Wall time 2,618s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_3b_abl_norouting_sub60.jsonl
+##### v2_3b_abl_nogrounded_sub60 00:43
+=== v2_3b_abl_nogrounded_sub60 === model=qwen2.5-coder:3b rag=True semantic=True repairs=2 abstain=False routing=True value_check=True verify_abstain=True
+Execution accuracy (answerable, n=54): strict 40.7%  relaxed 53.7%
+Correct abstention (unanswerable, n=6): 33.3%
+False abstentions: 0   Invalid/failed SQL: 3   Repaired (>1 attempt & correct): 2
+Wall time 3,215s -> C:\Users\Joebass\Documents\GitHub\GenoSQL-AI\eval\results\v2_3b_abl_nogrounded_sub60.jsonl
+##### ALL DONE 01:36

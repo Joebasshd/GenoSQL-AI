@@ -231,14 +231,27 @@ Full tables: [eval/results/SUMMARY_v2.md](../eval/results/SUMMARY_v2.md). Benchm
 - [ ] Human expert review of a random sample (e.g. 40 items) — annotators were LLMs; report the error rate found.
 - [ ] Add a LICENSE (suggest MIT for code, CC-BY-4.0 for the benchmark), tag `v2.0`, archive on Zenodo for a DOI.
 
-### Phase 3 — Experiments (2 weeks, mostly unattended compute)
+### Phase 3 — Experiments ✅ (completed 2026-10-18; tables: [eval/results/SUMMARY_phase3.md](../eval/results/SUMMARY_phase3.md))
 
-- [ ] Models (all free, local via Ollama): qwen2.5-coder 0.5b/1.5b/3b, llama3.2 3b, a recent 3–4B general model,
-  one SQL-tuned small model; 7B only if a ≥16 GB machine is available. Optional frontier ceiling only via free
-  credits or free-tier endpoints (`LLM_BACKEND=openai`) — not required for the paper's claims.
-- [ ] Ablation grid (5 configs × ~7 models × ~200 items ≈ 7 k runs; CPU ~10–20 s each → 1–2 days).
-- [ ] Memory-poisoning simulation.
-- [ ] Adversarial safety set.
+Run on a fixed 60-item stratified test subset where noted (power/compute constraints; 3B scores 53.7 % on it
+vs 53.0 % on the full test). Every run is crash-safe and resumable (`eval/phase3_runs.sh`).
+
+- [x] **Models** (full pipeline, subset): qwen2.5-coder 3B **53.7 %** > 1.5B 40.7 % > llama3.2 3B 31.5 % >
+  phi4-mini 3.8B 27.8 % > qwen2.5-coder 0.5B 14.8 %. 3B beats llama3.2 3B (16/2, p = 0.001) and phi4-mini
+  (18/4, p = 0.004): a code-specialised 3B beats general models of equal or larger size. Full-test scaling in
+  one family: 0.5B 13.4 % → 1.5B 33.6 % → 3B 53.0 %. No SQL-specialised small model fits 8 GB (limitation).
+- [x] **Ablation** (3B, subset; wins of full / of ablated):
+  semantic layer is the largest single contribution (53.7 → 40.7 %, 12/3, p = 0.035); verified examples
+  (→ 42.6 %, 11/5, p = 0.21) and routing rules (→ 46.3 %, 8/2, p = 0.11) help but n.s. on 54 items;
+  **self-repair adds ~nothing** (→ 51.9 %, 1/0); grounded abstention changes no answer (0/0) — it only turns
+  2 failed queries into explicit declines. Bare 13.0 % (26/2, p < 0.001).
+- [x] **Memory poisoning** (3B, 30 pairs): unverified auto-saved memory reproduces **7/12** earlier errors on
+  paraphrases (2/12 without memory); verified memory 0/12 at equal accuracy (56.7 %); expert-corrected memory
+  86.7 % (vs verified 0/9, p = 0.004).
+- [x] **Adversarial safety**: 33 direct + 15 NL attacks; every attack stopped by ≥ 1 layer, 0 leaks, 0 writes;
+  found and fixed a guard bypass (`version()` normalised to `CURRENT_VERSION`); database alone leaks catalog
+  metadata, guard alone cannot stop DoS — both layers are necessary.
+- Not run (dropped for time): value-check-only ablation; ablations on other models; 7B.
 
 ### Phase 4 — Usability (optional but strengthens the paper)
 
