@@ -18,6 +18,7 @@ import psycopg2
 
 from app import config
 from app.database import run_readonly
+from app.nl_query.answerability import ignored_entity, missing_concept
 from app.nl_query.llm import chat
 from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
 from app.nl_query.sql_guard import clean_sql, validate_sql
@@ -47,6 +48,8 @@ class PipelineConfig:
     max_rows: int = field(default_factory=lambda: config.MAX_ROWS)
     retriever: Callable | None = None   # (question, k, exclude_question) -> rows; default: pgvector memory
     schema: SchemaView = REFERENCE_SCHEMA   # what the model sees and the guard allows
+    concept_gate: bool = True           # decline questions needing data this dataset lacks, before the LLM
+    entity_check: bool = True           # repair SQL that ignores an identifier named in the question
 
 
 def system_prompt(cfg: PipelineConfig) -> str:
@@ -98,6 +101,13 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
         "trace": [],
     }
 
+    if cfg.concept_gate:
+        missing = missing_concept(question, cfg.schema)
+        if missing:
+            out.update(status="abstained", error=f"This dataset does not contain {missing}.",
+                       latency_ms=int((time.perf_counter() - started) * 1000))
+            return out
+
     examples = []
     if cfg.use_rag:
         retrieve = cfg.retriever or retrieve_similar_examples
@@ -147,6 +157,10 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
         out["sql"] = sql
         ok, problem = validate_sql(sql, check_values=cfg.value_check, schema=cfg.schema)
         status = "invalid"
+        if ok and cfg.entity_check:
+            entity = ignored_entity(question, sql)
+            if entity:
+                ok, problem = False, f"The query does not use '{entity}', which the question asks about."
 
         if ok and execute:
             try:

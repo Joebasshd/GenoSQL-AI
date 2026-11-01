@@ -15,7 +15,7 @@ def stub(monkeypatch, replies):
     return seen
 
 
-CFG = dict(use_rag=False, max_repairs=2)
+CFG = dict(use_rag=False, max_repairs=2, concept_gate=False)
 
 
 def test_first_abstention_is_challenged_then_answer_accepted(monkeypatch):
@@ -40,7 +40,7 @@ def test_challenge_can_be_disabled(monkeypatch):
 
 def test_no_challenge_when_no_attempts_left(monkeypatch):
     stub(monkeypatch, ["CANNOT_ANSWER: no age data"])
-    out = answer_question("Age?", PipelineConfig(use_rag=False, max_repairs=0), execute=False)
+    out = answer_question("Age?", PipelineConfig(use_rag=False, max_repairs=0, concept_gate=False), execute=False)
     assert out["status"] == "abstained"
 
 

@@ -4,7 +4,7 @@ from app.nl_query.sql_guard import validate_sql
 
 def profile(**overrides):
     base = {
-        "build": "GRCh38", "n_samples": 3, "sample_examples": ["A", "B", "C"], "annotated": False,
+        "build": "GRCh38", "n_samples": 12, "sample_examples": ["A", "B", "C"], "annotated": False,
         "chromosomes": [["1", 100], ["X", 5]], "variant_types": [["SNP", 90], ["INDEL", 15]],
         "sv_types": [], "filters": [["PASS", 90], ["q10", 15]], "pos_range": [1, 1000],
         "quality_range": [10.0, 900.0], "info_keys": [],

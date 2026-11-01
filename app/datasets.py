@@ -23,7 +23,8 @@ from app.rag.example_store import store_example
 
 log = logging.getLogger(__name__)
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
-MAX_INFO_KEYS = 15
+MAX_INFO_KEYS = 12
+MIN_SAMPLES_FOR_COHORT_AF = 10     # below this, a frequency computed from genotypes means nothing
 MAX_LISTED_VALUES = 30
 
 _ingest_pool = ThreadPoolExecutor(max_workers=1)   # one load at a time on a laptop
@@ -82,6 +83,7 @@ def build_profile(schema: str, header, build: str, info_keys: set) -> dict:
         profile = {
             "build": build,
             "n_samples": len(header.samples),
+            "file_has_af": "AF" in header.info,
             "sample_examples": [sanitize(x, 30) for x in header.samples[:8]],
             "annotated": annotated,
             "gene_links": gene_links,
@@ -106,7 +108,7 @@ def build_profile(schema: str, header, build: str, info_keys: set) -> dict:
                 "genotypes": _scalar(conn, f"SELECT EXISTS (SELECT 1 FROM {s}.genotypes)"),
             },
             "info_keys": [
-                {"id": sanitize(k, 30), "description": sanitize(header.info.get(k, ("", ""))[1])}
+                {"id": sanitize(k, 30), "description": sanitize(header.info.get(k, ("", ""))[1], 45)}
                 for k in sorted(info_keys)[:MAX_INFO_KEYS]
             ],
         }
@@ -120,7 +122,9 @@ def _quoted(values) -> str:
 
 
 def build_view(dataset_id: int, profile: dict) -> SchemaView:
-    has = profile["has"]
+    has = dict(profile["has"])
+    if not profile.get("file_has_af") and profile["n_samples"] < MIN_SAMPLES_FOR_COHORT_AF:
+        has["ac"] = has["af"] = False
     chroms = [c for c, _ in profile["chromosomes"]]
     types = [t for t, _ in profile["variant_types"] if t]
     filters = [f for f, _ in profile["filters"]]

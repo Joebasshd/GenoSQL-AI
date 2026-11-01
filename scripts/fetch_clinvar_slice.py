@@ -72,23 +72,26 @@ def inflate_blocks(raw: bytes) -> list[tuple[int, bytes]]:
 
 def main(chrom: str = "22"):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"clinvar_GRCh37_chr{chrom}.vcf.gz"
+    fetch_slice(URL, chrom, OUT_DIR / f"clinvar_GRCh37_chr{chrom}.vcf.gz")
 
+
+def fetch_slice(url: str, chrom: str, out: Path):
+    """Write one chromosome of a remote bgzipped, tabix-indexed VCF to `out`."""
     with httpx.Client(follow_redirects=True) as client:
-        head = client.head(URL, timeout=60)
+        head = client.head(url, timeout=60)
         last_modified = head.headers.get("last-modified", "unknown")
-        print(f"Source: {URL} (Last-Modified: {last_modified}, {int(head.headers['content-length']):,} bytes)")
+        print(f"Source: {url} (Last-Modified: {last_modified}, {head.headers.get('content-length', '?')} bytes)")
 
-        tbi = fetch(client, URL + ".tbi")
+        tbi = fetch(client, url + ".tbi")
         lo, hi = chrom_span(tbi, chrom)
         c_lo, u_lo, c_hi, u_hi = lo >> 16, lo & 0xFFFF, hi >> 16, hi & 0xFFFF
         print(f"chr{chrom}: compressed bytes {c_lo:,}-{c_hi:,} (~{(c_hi - c_lo) / 1e6:.1f} MB)")
 
-        header_blocks = inflate_blocks(fetch(client, URL, 0, 4 * MAX_BLOCK - 1))
+        header_blocks = inflate_blocks(fetch(client, url, 0, 4 * MAX_BLOCK - 1))
         header_text = b"".join(d for _, d in header_blocks).decode()
         header = [l for l in header_text.split("\n") if l.startswith("#")]
 
-        body = inflate_blocks(fetch(client, URL, c_lo, c_hi + MAX_BLOCK))
+        body = inflate_blocks(fetch(client, url, c_lo, c_hi + MAX_BLOCK))
 
     # Stitch the uncompressed stream from voffset lo to voffset hi.
     parts = []
@@ -108,7 +111,7 @@ def main(chrom: str = "22"):
         raise RuntimeError(f"{len(bad)} lines from other chromosomes, e.g. {bad[0][:60]}")
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    header.insert(-1, f"##genosql_slice=chr{chrom} of {URL} (Last-Modified {last_modified}), fetched {stamp}")
+    header.insert(-1, f"##genosql_slice=chr{chrom} of {url} (Last-Modified {last_modified}), fetched {stamp}")
     with gzip.open(out, "wt", encoding="utf-8") as fh:
         fh.write("\n".join(header + lines) + "\n")
     print(f"Wrote {len(lines):,} records -> {out}")
