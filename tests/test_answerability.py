@@ -138,3 +138,22 @@ def test_chromosomes_outside_the_data_are_declined(question):
 ])
 def test_chromosomes_in_the_data_pass(question):
     assert missing_concept(question, REFERENCE_SCHEMA) is None
+
+
+def test_repair_hint_for_clinvar_join():
+    from app.nl_query.answerability import repair_hint
+    assert "chrom, pos, ref" in repair_hint('column "variant_id" does not exist',
+                                            "SELECT 1 FROM variants WHERE id IN (SELECT variant_id FROM clinvar);")
+    assert repair_hint("syntax error", "SELECT 1;") == ""
+
+
+def test_guidance_can_be_switched_off_for_comparison():
+    prof = {"build": "GRCh37", "n_samples": 1, "sample_examples": ["A"], "annotated": True,
+            "chromosomes": [["22", 100]], "variant_types": [["SNP", 100]], "sv_types": [], "filters": [],
+            "pos_range": [1, 100], "quality_range": [None, None], "info_keys": [{"id": "MQ", "description": ""}],
+            "has": {"rsid": True, "af": False, "ac": False, "dp": False, "multiallelic": False,
+                    "genotype_gq": False, "genotype_dp": False, "genotypes": True}}
+    with_guidance = build_view(1, prof).notes
+    assert "no variant_id" in with_guidance and "(info->>'MQ')::float" in with_guidance
+    assert "needs no sample_id filter" in with_guidance
+    assert "no variant_id" not in build_view(1, prof, guidance=False).notes

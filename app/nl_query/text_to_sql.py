@@ -18,10 +18,10 @@ import psycopg2
 
 from app import config
 from app.database import run_readonly
-from app.nl_query.answerability import ignored_entity, missing_concept, out_of_scope
+from app.nl_query.answerability import ignored_entity, missing_concept, out_of_scope, repair_hint
 from app.nl_query.llm import chat
 from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
-from app.nl_query.sql_guard import clean_sql, validate_sql
+from app.nl_query.sql_guard import clean_sql, fix_json_casts, validate_sql
 from app.rag.retriever import retrieve_similar_examples
 
 ABSTAIN_MARKER = "CANNOT_ANSWER"
@@ -51,6 +51,7 @@ class PipelineConfig:
     concept_gate: bool = True           # decline questions needing data this dataset lacks, before the LLM
     scope_gate: bool = True             # decline questions the classifier places outside these databases
     entity_check: bool = True           # repair SQL that ignores an identifier named in the question
+    sql_fixes: bool = True              # deterministic rewrites and targeted repair hints
 
 
 def system_prompt(cfg: PipelineConfig) -> str:
@@ -160,6 +161,8 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
             break
 
         sql = clean_sql(resp.text)
+        if cfg.sql_fixes:
+            sql = fix_json_casts(sql)
         out["sql"] = sql
         ok, problem = validate_sql(sql, check_values=cfg.value_check, schema=cfg.schema)
         status = "invalid"
@@ -185,7 +188,9 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
         out["trace"].append({"attempt": attempt + 1, "sql": sql, "error": problem})
         messages += [
             {"role": "assistant", "content": resp.text},
-            {"role": "user", "content": f"That query failed: {problem}\nReturn a corrected SQL query only."},
+            {"role": "user", "content": f"That query failed: {problem}"
+                                        f"{repair_hint(problem, sql) if cfg.sql_fixes else ''}\n"
+                                        "Return a corrected SQL query only."},
         ]
 
     if (cfg.grounded_abstain and out["status"] == "invalid"

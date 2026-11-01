@@ -121,7 +121,7 @@ def _quoted(values) -> str:
     return ", ".join(f"'{sanitize(v, 30)}'" for v in values)
 
 
-def build_view(dataset_id: int, profile: dict) -> SchemaView:
+def build_view(dataset_id: int, profile: dict, guidance: bool = True) -> SchemaView:
     has = dict(profile["has"])
     if not profile.get("file_has_af") and profile["n_samples"] < MIN_SAMPLES_FOR_COHORT_AF:
         has["ac"] = has["af"] = False
@@ -227,6 +227,23 @@ def build_view(dataset_id: int, profile: dict) -> SchemaView:
     else:
         notes.append("- There is no gene or clinical annotation for this dataset.")
     notes.append("- There is no phenotype, expression or population data for this dataset.")
+    if guidance:
+        if has["ac"]:
+            notes.append("- 'Singleton' means a variant seen once in the cohort: ac = 1 in variants. "
+                         "It is not a count of heterozygous genotypes.")
+        if profile["info_keys"]:
+            notes.append("- info values are text. Cast with parentheses: (info->>'MQ')::float > 55.")
+        if "genotypes" in tables:
+            notes.append("- For 'the genotype at' a variant, select genotypes.gt (and sample_id) by joining "
+                         "variants. allele_count 1 is heterozygous, 2 is homozygous.")
+            if n == 1:
+                notes.append("- The file holds one person, so 'this person' or 'this genome' needs no "
+                             "sample_id filter, and every row of variants is one they carry.")
+        if "clinvar" in tables:
+            notes.append("- 'In ClinVar' means variants JOIN clinvar ON chrom, pos, ref AND alt. clinvar has "
+                         "no variant_id column.")
+            notes.append("- For a ClinVar class use significance_class: 'benign' also covers Benign/Likely "
+                         "benign. Do not compare clinical_significance to exact text.")
 
     return SchemaView(tables, "\n".join(notes), "\n".join(routing), categorical,
                       search_path=f"{schema_name(dataset_id)}, public")
@@ -249,7 +266,8 @@ def get_view(dataset_id: int) -> SchemaView | None:
 
 # ── verified examples built from this file's own values ─────────────────
 
-def starter_examples(dataset_id: int, profile: dict, view: SchemaView) -> list[tuple[str, str]]:
+def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
+                     guidance: bool = True) -> list[tuple[str, str]]:
     schema = schema_name(dataset_id)
     chrom = profile["chromosomes"][0][0]
     with engine.connect() as conn:
@@ -290,6 +308,17 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView) -> list[t
         seeds.append(("number of variants in each gene",
                       "SELECT g.gene_name, COUNT(*) AS n FROM variants v JOIN variant_genes vg ON vg.variant_id = v.id "
                       "JOIN genes g ON g.gene_id = vg.gene_id GROUP BY g.gene_name ORDER BY n DESC;"))
+    if guidance:
+        if "genotypes" in view.tables:
+            seeds.append((f"what is the genotype at {v.chrom}:{v.pos}",
+                          f"SELECT g.sample_id, g.gt FROM genotypes g JOIN variants v ON v.id = g.variant_id WHERE {at};"))
+        if "clinvar" in view.tables:
+            on = "c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt"
+            seeds.append(("how many of these variants are listed in ClinVar",
+                          f"SELECT COUNT(*) FROM variants v JOIN clinvar c ON {on};"))
+            seeds.append(("how many likely benign ClinVar variants are here",
+                          f"SELECT COUNT(*) FROM variants v JOIN clinvar c ON {on} "
+                          "WHERE c.significance_class = 'likely_benign';"))
     return seeds
 
 

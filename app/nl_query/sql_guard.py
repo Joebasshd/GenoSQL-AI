@@ -46,6 +46,11 @@ def clean_sql(raw: str) -> str:
     return sql + ";" if sql else ""
 
 
+def fix_json_casts(sql: str) -> str:
+    """info->>'MQ'::float casts the key, not the value, and fails; PostgreSQL needs parentheses."""
+    return re.sub(r"((?:\w+\.)?\w+->>'[^']+')::(\w+)", r"(\1)::\2", sql)
+
+
 def _function_name(node: exp.Func) -> str:
     if isinstance(node, exp.Anonymous):
         return str(node.this).lower()

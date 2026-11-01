@@ -99,3 +99,15 @@ def test_category_check_can_be_disabled_and_allows_valid_values():
 def test_rejects_server_identity_functions(sql):
     ok, reason = validate_sql(sql)
     assert not ok and "not allowed" in reason, reason
+
+
+@pytest.mark.parametrize("sql, fixed", [
+    ("SELECT COUNT(*) FROM variants WHERE info->>'MQ'::FLOAT > 55;",
+     "SELECT COUNT(*) FROM variants WHERE (info->>'MQ')::FLOAT > 55;"),
+    ("SELECT AVG(v.info->>'MQ'::float) FROM variants v;", "SELECT AVG((v.info->>'MQ')::float) FROM variants v;"),
+    ("SELECT (info->>'MQ')::float FROM variants;", "SELECT (info->>'MQ')::float FROM variants;"),
+    ("SELECT chrom::text FROM variants;", "SELECT chrom::text FROM variants;"),
+])
+def test_fix_json_casts(sql, fixed):
+    from app.nl_query.sql_guard import fix_json_casts
+    assert fix_json_casts(sql) == fixed

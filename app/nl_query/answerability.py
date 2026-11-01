@@ -97,6 +97,13 @@ def out_of_scope(question: str) -> bool:
     return 1 / (1 + np.exp(-score)) > _model["threshold"]
 
 
+def repair_hint(problem: str, sql: str) -> str:
+    """Extra direction for failures that small models repeat when only shown the raw error."""
+    if "variant_id" in problem and "clinvar" in sql.lower():
+        return " clinvar has no variant_id: join variants ON chrom, pos, ref AND alt."
+    return ""
+
+
 def ignored_entity(question: str, sql: str) -> str | None:
     """An identifier named in the question that the SQL never uses."""
     for pattern in ENTITY_PATTERNS:
