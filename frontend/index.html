@@ -203,6 +203,54 @@
             color: var(--muted);
         }
 
+        .dataset-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .dataset-bar select,
+        .dataset-bar button,
+        .dataset-bar label.upload {
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border-lit);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .dataset-bar select {
+            min-width: 0;
+            max-width: 340px;
+        }
+
+        .dataset-bar label.upload:hover,
+        .dataset-bar button:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .dataset-bar button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        .dataset-bar input[type=file] {
+            display: none;
+        }
+
+        #datasetStatus.error {
+            color: var(--red);
+        }
+
         .submit-btn {
             background: var(--accent);
             color: #000;
@@ -563,6 +611,17 @@
 
             <!-- ── QUERY PANEL ── -->
             <section class="query-panel">
+                <div class="panel-label">Dataset</div>
+                <div class="dataset-bar">
+                    <select id="datasetSelect" aria-label="Dataset to query">
+                        <option value="">1000 Genomes + ClinVar (chr22 reference)</option>
+                    </select>
+                    <label class="upload" for="vcfFile">Upload VCF</label>
+                    <input type="file" id="vcfFile" accept=".vcf,.gz,.bgz">
+                    <button id="deleteDataset" disabled>Delete</button>
+                    <span id="datasetStatus"></span>
+                </div>
+
                 <div class="panel-label">Query</div>
                 <div class="query-box">
                     <textarea class="query-input" id="queryInput"
@@ -773,7 +832,7 @@
                 const res = await fetch(`${API_BASE}/query`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
+                    body: JSON.stringify({ question, dataset_id: currentDataset() })
                 });
 
                 const body = await res.json();
@@ -861,8 +920,102 @@
             }
         });
 
+        // ── DATASETS ──
+        const datasetSelect = document.getElementById('datasetSelect');
+        const datasetStatus = document.getElementById('datasetStatus');
+        const vcfFile = document.getElementById('vcfFile');
+        const deleteDataset = document.getElementById('deleteDataset');
+        let datasetPoll = null;
+
+        function currentDataset() {
+            return datasetSelect.value ? Number(datasetSelect.value) : null;
+        }
+
+        function setDatasetStatus(message, isError = false) {
+            datasetStatus.textContent = message;
+            datasetStatus.classList.toggle('error', isError);
+        }
+
+        function describe(d) {
+            const samples = d.n_samples ? `, ${d.n_samples.toLocaleString()} samples` : '';
+            return `${d.name} (${(d.n_variants ?? 0).toLocaleString()} variants${samples}, ${d.build})`;
+        }
+
+        async function refreshDatasets(selectId = null) {
+            const res = await fetch(`${API_BASE}/datasets`);
+            const all = await res.json();
+            const keep = selectId ?? currentDataset();
+            datasetSelect.querySelectorAll('option[value]:not([value=""])').forEach(o => o.remove());
+            for (const d of all.filter(d => d.status === 'ready')) {
+                const option = document.createElement('option');
+                option.value = d.id;
+                option.textContent = describe(d);   // textContent: names come from uploads
+                datasetSelect.append(option);
+            }
+            datasetSelect.value = all.some(d => d.id === keep && d.status === 'ready') ? String(keep) : '';
+            deleteDataset.disabled = currentDataset() === null;
+            return all;
+        }
+
+        function watchDataset(id, filename) {
+            clearInterval(datasetPoll);
+            datasetPoll = setInterval(async () => {
+                const all = await refreshDatasets();
+                const d = all.find(x => x.id === id);
+                if (!d || d.status === 'pending' || d.status === 'loading') {
+                    setDatasetStatus(`Loading ${filename}...`);
+                    return;
+                }
+                clearInterval(datasetPoll);
+                if (d.status === 'ready') {
+                    await refreshDatasets(id);
+                    setDatasetStatus(`Ready: ${d.n_variants.toLocaleString()} variants loaded.`);
+                } else {
+                    setDatasetStatus(d.error || 'Could not load this file.', true);
+                }
+            }, 2000);
+        }
+
+        vcfFile.addEventListener('change', async () => {
+            const file = vcfFile.files[0];
+            vcfFile.value = '';
+            if (!file) return;
+            setDatasetStatus(`Uploading ${file.name}...`);
+            const form = new FormData();
+            form.append('file', file);
+            form.append('name', file.name.replace(/\.(vcf|gz|bgz)/g, ''));
+            try {
+                const res = await fetch(`${API_BASE}/datasets`, { method: 'POST', body: form });
+                const body = await res.json();
+                if (!res.ok) {
+                    setDatasetStatus(body.detail || 'Upload failed.', true);
+                    return;
+                }
+                watchDataset(body.dataset_id, file.name);
+            } catch {
+                setDatasetStatus('Upload failed. Is the server running?', true);
+            }
+        });
+
+        datasetSelect.addEventListener('change', () => {
+            deleteDataset.disabled = currentDataset() === null;
+            setDatasetStatus('');
+            showState('empty');
+            sqlDisplay.classList.remove('visible');
+        });
+
+        deleteDataset.addEventListener('click', async () => {
+            const id = currentDataset();
+            const label = datasetSelect.selectedOptions[0].textContent;
+            if (id === null || !confirm(`Permanently delete ${label} and its query history?`)) return;
+            const res = await fetch(`${API_BASE}/datasets/${id}`, { method: 'DELETE' });
+            await refreshDatasets();
+            setDatasetStatus(res.ok ? 'Deleted.' : 'Could not delete.', !res.ok);
+        });
+
         // ── INIT ──
         checkHealth();
+        refreshDatasets().catch(() => { });
     </script>
 </body>
 
