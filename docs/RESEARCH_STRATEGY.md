@@ -287,3 +287,21 @@ Not comparable with the 53 % on GenoSQL-Bench: 30 questions written by one autho
 one small file, a simpler schema, and starter examples from that file. Treat it as a working-feature check.
 The worrying failure is unanswerable questions: "What disease does sample HG00259 have?" returned ClinVar
 conditions of carried variants, i.e. a table that reads like a diagnosis. Abstention needs work before clinical-adjacent use.
+
+## 7. Answerability gates and real genomes (2026-11-02)
+
+Small models can't judge answerability, so it moved out of the model: a dataset-aware concept gate and
+chromosome check, an embedding classifier for out-of-scope questions (`eval/train_scope.py`), and an entity check
+that repairs SQL ignoring a named sample or rsID. Declines offer "Ask anyway".
+
+- Keyword gate alone on fresh Gemini questions: 17/80 unanswerable caught, 1/80 false declines. A blocklist cannot
+  enumerate absent data.
+- Gate + classifier, frozen before a new held-out batch: **68/80 caught (85 %), 5/80 false declines (6 %)**, above the
+  2 % cross-validated target. The chromosome check came after this batch was seen and is not included in that score.
+- 3B on real GIAB HG001 (GRCh37 chr22, hand-written questions): 11/14 answerable, 6/6 unanswerable declined, 3/20
+  silent wrong (`eval/results/giab_3b.jsonl`). Both real files loaded first time with exact counts.
+- Demo cohort before -> after: declines 0/4 -> 4/4, silent wrong 5/30 -> 2/30, accuracy unchanged at 22/26. The 4
+  questions informed the gate's design, so this is not an independent score.
+- 1000G fixed subset before -> after: EX 53.7 % -> 53.7 % (3 won, 1 lost, p = 0.63), declines 2/6 -> 4/6, false declines
+  2 -> 5, silent wrong 43 % -> 33 %. Benchmark questions are in the classifier's training data, so optimistic.
+  One real regression: a ClinVar conditions question for rs73885319 was declined by the classifier.
