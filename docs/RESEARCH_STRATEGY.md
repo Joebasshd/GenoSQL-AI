@@ -275,3 +275,15 @@ vs 53.0 % on the full test). Every run is crash-safe and resumable (`eval/phase3
 - Benchmark authored by the system's authors → independent annotator, paraphrases, freeze before tuning prompts.
 - Seed examples leaking into benchmark → seeds are pattern-level and checked for overlap; evaluation excludes self-retrieval.
 - LLM nondeterminism → temperature 0, fixed seed, record model digest (`ollama show`).
+
+## 6. Bring-your-own-VCF (first evaluation, 2026-11-01)
+
+Uploads load into per-dataset schemas with a schema view generated from the file. Evaluated once with
+`qwen2.5-coder:3b` on a 12-sample demo cohort (`eval/byo_eval.py`, `eval/results/byo_3b.jsonl`):
+**22/26 answerable correct (84.6 %)**, 0 false declines, **0/4 unanswerable declined**, 5/30 silent wrong.
+Sites 5/5, quality 3/4, frequency 2/3, genotypes 8/8, annotation 4/6.
+
+Not comparable with the 53 % on GenoSQL-Bench: 30 questions written by one author who also built the feature,
+one small file, a simpler schema, and starter examples from that file. Treat it as a working-feature check.
+The worrying failure is unanswerable questions: "What disease does sample HG00259 have?" returned ClinVar
+conditions of carried variants, i.e. a table that reads like a diagnosis. Abstention needs work before clinical-adjacent use.

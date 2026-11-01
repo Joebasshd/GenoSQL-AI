@@ -79,6 +79,22 @@ Type a question in the UI. You see the generated SQL, the results, and a ✓/✗
 | GET | `/history` | recent queries from `query_log` |
 | GET | `/health`, `/stats` | DB/LLM status, counts |
 
+## Query your own VCF
+
+Click **Upload VCF** in the UI (or `POST /datasets`), wait for it to load, and pick it in the dataset menu. Plain `.vcf` and `.vcf.gz` work, from any chromosome, with or without `chr` prefixes, single-sample or cohort.
+
+- **Your data stays on your machine.** Nothing is sent anywhere; the model runs locally. The uploaded file is deleted once loaded, and **Delete** removes the dataset and its query history.
+- **Each dataset is separate.** It gets its own database schema and never mixes with the reference data or other uploads.
+- **The schema the model sees is generated from your file**, so it covers your FILTER values, QUAL, read depth and genotype quality, and hides columns that carry no information.
+- **Genotypes:** carriers only (a sample with no row doesn't carry the variant, or had no call). Limits, adjustable in `.env`: 2 GB file, 500 samples, 30 M carrier genotypes.
+
+Current limits:
+- Gene and ClinVar annotation works for **GRCh37, chromosome 22 only**. Other chromosomes and GRCh38 load and can be queried, but have no gene or clinical annotation.
+- The genome build is detected from contig lengths or the `##reference` line; if it can't be detected the dataset is treated as unannotated.
+- Not a clinical tool. Check the SQL shown with every answer.
+
+To try it without your own data, `python -m scripts.make_demo_vcf` builds `data/demo/demo_cohort.vcf.gz` (12 people around COMT, real public genotypes with synthetic quality fields).
+
 ## Evaluation (reproducing the research results)
 
 **GenoSQL-Bench v2**: 246 questions (148 held-out test), written by hand and by two independent LLM annotators whose SQL had to agree on execution — see the [datasheet](eval/BENCHMARK.md). To regenerate or extend it with your own Gemini key (`GEMINI_API_KEY` in `.env`, free tier works): `python -m scripts.generate_benchmark run`.
