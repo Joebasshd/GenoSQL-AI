@@ -3,7 +3,8 @@ from app.database import engine
 from app.rag.embeddings import embed_text, to_pgvector
 
 
-def retrieve_similar_examples(question: str, k: int = 3, exclude_question: str | None = None):
+def retrieve_similar_examples(question: str, k: int = 3, exclude_question: str | None = None,
+                              dataset_id: int | None = None):
     """
     Top-k verified examples by cosine distance (matches the HNSW
     vector_cosine_ops index). `exclude_question` prevents an evaluation item
@@ -14,11 +15,12 @@ def retrieve_similar_examples(question: str, k: int = 3, exclude_question: str |
             text("""
                 SELECT question, sql_query, embedding <=> CAST(:embedding AS vector) AS distance
                 FROM sql_examples
-                WHERE verified
+                WHERE verified AND dataset_id IS NOT DISTINCT FROM CAST(:dataset AS integer)
                   AND (CAST(:exclude AS text) IS NULL OR lower(question) <> lower(CAST(:exclude AS text)))
                 ORDER BY embedding <=> CAST(:embedding AS vector)
                 LIMIT :k
             """),
-            {"embedding": to_pgvector(embed_text(question)), "k": k, "exclude": exclude_question},
+            {"embedding": to_pgvector(embed_text(question)), "k": k, "exclude": exclude_question,
+             "dataset": dataset_id},
         )
         return result.fetchall()

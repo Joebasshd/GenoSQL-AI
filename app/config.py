@@ -38,6 +38,11 @@ MAX_ROWS = int(os.getenv("MAX_ROWS", "200"))
 STATEMENT_TIMEOUT_MS = int(os.getenv("STATEMENT_TIMEOUT_MS", "15000"))
 MAX_REPAIR_ATTEMPTS = int(os.getenv("MAX_REPAIR_ATTEMPTS", "2"))
 
+# Uploaded datasets
+UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "2048"))
+UPLOAD_MAX_SAMPLES = int(os.getenv("UPLOAD_MAX_SAMPLES", "500"))
+UPLOAD_MAX_GENOTYPES = int(os.getenv("UPLOAD_MAX_GENOTYPES", "30000000"))   # carrier rows; keeps a laptop usable
+
 
 def admin_url() -> URL:
     return URL.create("postgresql+psycopg2", DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME)

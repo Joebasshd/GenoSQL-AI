@@ -173,3 +173,28 @@ CREATE TABLE IF NOT EXISTS query_log (
     output_tokens   INTEGER,
     feedback        BOOLEAN                     -- user marked result correct / incorrect
 );
+
+-- ─────────────────────────────────────────────────────────────
+-- datasets: user-uploaded VCFs. Each lives in its own schema ds_<id>
+-- (variants, samples, genotypes, variant_genes) so it never mixes with the
+-- 1000 Genomes reference tables in public.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS datasets (
+    id           SERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',   -- pending | loading | ready | failed
+    error        TEXT,
+    build        TEXT,                              -- GRCh37 | GRCh38 | unknown
+    n_variants   BIGINT,
+    n_samples    INTEGER,
+    n_genotypes  BIGINT,
+    profile      JSONB,                             -- drives the generated schema view
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE query_log ADD COLUMN IF NOT EXISTS dataset_id INTEGER;
+ALTER TABLE sql_examples ADD COLUMN IF NOT EXISTS dataset_id INTEGER;
+ALTER TABLE sql_examples DROP CONSTRAINT IF EXISTS sql_examples_question_sql_query_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sql_examples_scope
+ON sql_examples (question, sql_query, COALESCE(dataset_id, 0));

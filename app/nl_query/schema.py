@@ -4,6 +4,7 @@ the SQL guard allows. The column descriptions and DOMAIN_NOTES form the
 "genomic semantic layer" — an ablation target in the evaluation
 (see eval/run_eval.py --no-semantic).
 """
+from dataclasses import dataclass
 
 TABLES = {
     "variants": {
@@ -168,21 +169,49 @@ CATEGORICAL_VALUES = {
 }
 
 
+@dataclass(frozen=True)
+class SchemaView:
+    """What the LLM sees and the guard allows for one queryable dataset."""
+    tables: dict
+    notes: str
+    routing: str
+    categorical: dict
+    search_path: str | None = None      # e.g. "ds_3, public" for an uploaded dataset
+
+    @property
+    def allowed_tables(self) -> set:
+        return set(self.tables)
+
+    @property
+    def table_columns(self) -> dict:
+        return {t: {name for name, _, _ in spec["columns"]} for t, spec in self.tables.items()}
+
+    @property
+    def allowed_columns(self) -> set:
+        return set().union(*self.table_columns.values())
+
+    def prompt(self, semantic: bool = True, routing: bool = False) -> str:
+        """Render for the system prompt. semantic=False gives names/types only."""
+        parts = []
+        for table, spec in self.tables.items():
+            parts.append(f"Table: {table}" + (f" — {spec['description']}" if semantic else ""))
+            for name, typ, desc in spec["columns"]:
+                parts.append(f"- {name} ({typ})" + (f": {desc}" if semantic else ""))
+            parts.append("")
+        if semantic:
+            parts.append(self.notes)
+        if routing:
+            parts += ["", self.routing]
+        return "\n".join(parts).strip()
+
+
+REFERENCE_SCHEMA = SchemaView(TABLES, DOMAIN_NOTES, ROUTING_RULES, CATEGORICAL_VALUES)
+
+
 def schema_prompt(semantic: bool = True, routing: bool = False) -> str:
-    """Render the schema for the system prompt. semantic=False gives names/types only."""
-    parts = []
-    for table, spec in TABLES.items():
-        parts.append(f"Table: {table}" + (f" — {spec['description']}" if semantic else ""))
-        for name, typ, desc in spec["columns"]:
-            parts.append(f"- {name} ({typ})" + (f": {desc}" if semantic else ""))
-        parts.append("")
-    if semantic:
-        parts.append(DOMAIN_NOTES)
-    if routing:
-        parts += ["", ROUTING_RULES]
-    return "\n".join(parts).strip()
+    return REFERENCE_SCHEMA.prompt(semantic, routing)
 
 
-ALLOWED_TABLES = set(TABLES)
-ALLOWED_COLUMNS = {name for spec in TABLES.values() for name, _, _ in spec["columns"]}
-TABLE_COLUMNS = {t: {name for name, _, _ in spec["columns"]} for t, spec in TABLES.items()}
+ALLOWED_TABLES = REFERENCE_SCHEMA.allowed_tables
+ALLOWED_COLUMNS = REFERENCE_SCHEMA.allowed_columns
+TABLE_COLUMNS = REFERENCE_SCHEMA.table_columns

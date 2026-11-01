@@ -7,3 +7,4 @@ python-dotenv
 sqlglot
 sentence-transformers
 pytest
+python-multipart

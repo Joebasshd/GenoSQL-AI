@@ -19,12 +19,11 @@ import psycopg2
 from app import config
 from app.database import run_readonly
 from app.nl_query.llm import chat
-from app.nl_query.schema import ALLOWED_TABLES, schema_prompt
+from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
 from app.nl_query.sql_guard import clean_sql, validate_sql
 from app.rag.retriever import retrieve_similar_examples
 
 ABSTAIN_MARKER = "CANNOT_ANSWER"
-ALLOWED_TABLE_LIST = sorted(ALLOWED_TABLES)
 # Guard messages meaning "the query needs schema that doesn't exist"
 SCHEMA_MISS_PREFIXES = ("Unknown table", "Unknown column", "Table '")
 
@@ -47,6 +46,7 @@ class PipelineConfig:
     rag_k: int = field(default_factory=lambda: config.RAG_K)
     max_rows: int = field(default_factory=lambda: config.MAX_ROWS)
     retriever: Callable | None = None   # (question, k, exclude_question) -> rows; default: pgvector memory
+    schema: SchemaView = REFERENCE_SCHEMA   # what the model sees and the guard allows
 
 
 def system_prompt(cfg: PipelineConfig) -> str:
@@ -58,7 +58,7 @@ def system_prompt(cfg: PipelineConfig) -> str:
     return f"""You are a bioinformatics SQL expert. Convert questions about genomic variant data into a single PostgreSQL SELECT query.
 
 Database schema:
-{schema_prompt(cfg.semantic_schema, cfg.routing_rules and cfg.semantic_schema)}
+{cfg.schema.prompt(cfg.semantic_schema, cfg.routing_rules and cfg.semantic_schema)}
 
 Rules:
 - Return only the SQL query: no explanation, no markdown.
@@ -132,7 +132,7 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
             messages += [
                 {"role": "assistant", "content": resp.text},
                 {"role": "user", "content": (
-                    f"Check again before giving up. The available tables are: {', '.join(ALLOWED_TABLE_LIST)}. "
+                    f"Check again before giving up. The available tables are: {', '.join(sorted(cfg.schema.allowed_tables))}. "
                     "List the table and column that hold each piece of information the question needs. "
                     "If they all exist, return the SQL query only. "
                     f"If something needed is truly missing, reply {ABSTAIN_MARKER}: <what is missing>.")},
@@ -145,12 +145,12 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
 
         sql = clean_sql(resp.text)
         out["sql"] = sql
-        ok, problem = validate_sql(sql, check_values=cfg.value_check)
+        ok, problem = validate_sql(sql, check_values=cfg.value_check, schema=cfg.schema)
         status = "invalid"
 
         if ok and execute:
             try:
-                result = run_readonly(sql, max_rows=cfg.max_rows)
+                result = run_readonly(sql, max_rows=cfg.max_rows, search_path=cfg.schema.search_path)
                 out.update(status="ok", error=None, **result)
                 out["trace"].append({"attempt": attempt + 1, "sql": sql, "ok": True})
                 break

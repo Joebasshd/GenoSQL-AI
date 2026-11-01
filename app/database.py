@@ -1,4 +1,5 @@
 import itertools
+import re
 
 from sqlalchemy import create_engine
 from app import config
@@ -14,7 +15,7 @@ _cursor_ids = itertools.count()
 
 
 def run_readonly(sql: str, max_rows: int = config.MAX_ROWS,
-                 timeout_ms: int = config.STATEMENT_TIMEOUT_MS) -> dict:
+                 timeout_ms: int = config.STATEMENT_TIMEOUT_MS, search_path: str | None = None) -> dict:
     """
     Execute a query in a READ ONLY transaction with a statement timeout,
     returning at most `max_rows` rows.
@@ -23,13 +24,18 @@ def run_readonly(sql: str, max_rows: int = config.MAX_ROWS,
     - rows are streamed, so `SELECT *` over a million rows isn't pulled into memory
     - DECLARE CURSOR only accepts SELECT/VALUES, one more barrier against writes
     - executed without parameters, so '%' and ':' in the SQL are taken literally
+    `search_path` selects an uploaded dataset ("ds_3, public").
     Raises psycopg2.Error on database errors.
     """
+    if search_path is not None and not re.fullmatch(r"ds_\d+, public", search_path):
+        raise ValueError(f"Invalid search_path: {search_path!r}")
     raw = reader_engine.raw_connection()
     try:
         with raw.cursor() as setup:
             setup.execute("SET TRANSACTION READ ONLY")
             setup.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+            if search_path:
+                setup.execute(f"SET LOCAL search_path = {search_path}")
         cur = raw.cursor(name=f"genosql_{next(_cursor_ids)}")
         cur.itersize = max_rows + 1
         cur.execute(sql)

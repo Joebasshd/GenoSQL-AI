@@ -10,3 +10,6 @@ data/clinvar/
 data/reference/
 eval/generation/cache/
 .claude/
+paper/
+data/uploads/
+data/demo/

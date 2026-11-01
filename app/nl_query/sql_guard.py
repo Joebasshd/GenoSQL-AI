@@ -12,7 +12,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from app.nl_query.schema import ALLOWED_COLUMNS, ALLOWED_TABLES, CATEGORICAL_VALUES, TABLE_COLUMNS
+from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
 
 # Functions that read server state/files, change settings, or reach other DBs.
 DENIED_FUNCTION_PREFIXES = ("pg_", "lo_", "dblink", "txid_")
@@ -52,8 +52,12 @@ def _function_name(node: exp.Func) -> str:
     return node.sql_name().lower()
 
 
-def validate_sql(sql: str, check_values: bool = True) -> tuple[bool, str]:
+def validate_sql(sql: str, check_values: bool = True,
+                 schema: SchemaView = REFERENCE_SCHEMA) -> tuple[bool, str]:
     """Return (ok, reason). `reason` is phrased so it can be fed back to the LLM."""
+    ALLOWED_TABLES = schema.allowed_tables
+    ALLOWED_COLUMNS = schema.allowed_columns
+    TABLE_COLUMNS = schema.table_columns
     try:
         statements = [s for s in sqlglot.parse(sql, read="postgres") if s is not None]
     except ParseError as e:
@@ -76,9 +80,9 @@ def validate_sql(sql: str, check_values: bool = True) -> tuple[bool, str]:
         name = table.name.lower()
         if not name:
             continue  # table-valued function such as generate_series(...)
-        schema = (table.db or "").lower()
-        if schema and schema != "public":
-            return False, f"Access to schema '{schema}' is not allowed. Use only: {sorted(ALLOWED_TABLES)}."
+        qualifier = (table.db or "").lower()
+        if qualifier and qualifier != "public":
+            return False, f"Access to schema '{qualifier}' is not allowed. Use only: {sorted(ALLOWED_TABLES)}."
         if name not in ALLOWED_TABLES and name not in cte_names:
             return False, f"Unknown table '{table.name}'. Available tables: {sorted(ALLOWED_TABLES)}."
 
@@ -122,14 +126,14 @@ def validate_sql(sql: str, check_values: bool = True) -> tuple[bool, str]:
                            f"Valid columns: {', '.join(sorted(set().union(*(TABLE_COLUMNS[t] for t in tables))))}.")
 
     if check_values:
-        problem = _check_category_values(tree)
+        problem = _check_category_values(tree, schema.categorical)
         if problem:
             return False, problem
 
     return True, "OK"
 
 
-def _check_category_values(tree) -> str | None:
+def _check_category_values(tree, categorical: dict) -> str | None:
     """
     Value linking: `variant_type = 'INS'` is valid SQL that silently returns
     nothing. Reject literals outside a category column's known values.
@@ -137,7 +141,7 @@ def _check_category_values(tree) -> str | None:
     def check(col, lit):
         if not (isinstance(col, exp.Column) and isinstance(lit, exp.Literal) and lit.is_string):
             return None
-        allowed = CATEGORICAL_VALUES.get(col.name.lower())
+        allowed = categorical.get(col.name.lower())
         if allowed is not None and lit.this not in allowed:
             return (f"'{lit.this}' is not a valid value for {col.name}. "
                     f"Valid values: {', '.join(sorted(allowed))}.")

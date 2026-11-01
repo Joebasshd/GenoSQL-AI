@@ -3,7 +3,8 @@ from app.database import engine
 from app.rag.embeddings import embed_text, to_pgvector
 
 
-def store_example(question: str, sql_query: str, verified: bool = True, source: str = "user"):
+def store_example(question: str, sql_query: str, verified: bool = True, source: str = "user",
+                  dataset_id: int | None = None):
     """
     Save a (question → SQL) pair to RAG memory.
 
@@ -14,9 +15,9 @@ def store_example(question: str, sql_query: str, verified: bool = True, source: 
     with engine.begin() as conn:
         conn.execute(
             text("""
-                INSERT INTO sql_examples (question, sql_query, embedding, verified, source)
-                VALUES (:question, :sql_query, CAST(:embedding AS vector), :verified, :source)
-                ON CONFLICT (question, sql_query)
+                INSERT INTO sql_examples (question, sql_query, embedding, verified, source, dataset_id)
+                VALUES (:question, :sql_query, CAST(:embedding AS vector), :verified, :source, :dataset_id)
+                ON CONFLICT (question, sql_query, COALESCE(dataset_id, 0))
                 DO UPDATE SET verified = sql_examples.verified OR EXCLUDED.verified
             """),
             {
@@ -25,5 +26,6 @@ def store_example(question: str, sql_query: str, verified: bool = True, source: 
                 "embedding": to_pgvector(embed_text(question)),
                 "verified": verified,
                 "source": source,
+                "dataset_id": dataset_id,
             },
         )
