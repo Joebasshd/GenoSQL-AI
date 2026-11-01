@@ -51,7 +51,7 @@ CONCEPTS: list[tuple[str, str, Callable[[SchemaView], bool]]] = [
      r"|\bwhat (diseases?|conditions?|illness\w*|disorders?)\b[^?]*\b(sample|patient|individual|person|does|did|do)\b[^?]*\b(have|has|had|suffer\w*)\b"
      r"|\b(is|are) [^?]*\b(sick|healthy|ill|affected)\b", lambda v: False),
     ("who submitted ClinVar records",
-     r"(?<!multiple )\b(submitters?|submitted by|submitting lab\w*)\b", lambda v: False),
+     r"(?<!multiple )\b(submitters?|submitted|submitting lab\w*)\b", lambda v: False),
     ("ancestry or population labels",
      r"\b(ancestr\w+|ethnic\w*|races?|nationalit\w+|populations?|super-?populations?|continental"
      r"|africans?|europeans?|asians?|hispanics?|latin[oa]s?|admixed|yoruba|han chinese|finnish|british|japanese)\b",
@@ -70,6 +70,13 @@ def missing_concept(question: str, view: SchemaView) -> str | None:
     """What the question needs that this dataset lacks, or None if it looks answerable."""
     # ClinVar's own disease and condition fields are real data, so don't treat them as patient records.
     text = question.lower()
+    available = view.categorical.get("chrom")
+    if available:
+        asked = {re.sub(r"^m$", "mt", c).upper() for c in re.findall(r"\bchr(?:omosome)?[ -]?(\d{1,2}|x|y|mt?)\b", text)}
+        outside = sorted(asked - set(available))
+        if outside and not asked & set(available):
+            return (f"chromosome {', '.join(outside)}: it covers only chromosome "
+                    f"{', '.join(sorted(available)[:10])}")
     for concept, pattern, provided in CONCEPTS:
         if re.search(pattern, text) and not provided(view):
             if "clinvar" in text and "clinical records" in concept and "clinvar" in view.allowed_tables:

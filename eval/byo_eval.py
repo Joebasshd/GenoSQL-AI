@@ -76,8 +76,40 @@ ITEMS = [
 ]
 
 
-def check_gold(view):
-    for category, question, gold in ITEMS:
+# Real single-person genome: GIAB HG001 / NA12878, GRCh37 chr22 (python -m scripts.fetch_giab)
+GIAB_ITEMS = [
+    ("sites", "How many variants does this genome have on chromosome 22?", "SELECT COUNT(*) FROM variants"),
+    ("sites", "How many indels are there?", "SELECT COUNT(*) FROM variants WHERE variant_type = 'INDEL'"),
+    ("sites", "How many SNPs lie between 20 Mb and 21 Mb?",
+     "SELECT COUNT(*) FROM variants WHERE variant_type = 'SNP' AND pos BETWEEN 20000000 AND 21000000"),
+    ("sites", "How many variants have no rsID?", "SELECT COUNT(*) FROM variants WHERE rsid IS NULL"),
+    ("zygosity", "How many heterozygous variants does this person have?",
+     "SELECT COUNT(*) FROM genotypes WHERE allele_count = 1"),
+    ("zygosity", "How many homozygous alternate sites are there?",
+     "SELECT COUNT(*) FROM genotypes WHERE allele_count = 2"),
+    ("zygosity", "What is the genotype at rs4680?", f"SELECT g.gt FROM {G} WHERE v.rsid = 'rs4680'"),
+    ("quality", "How many genotype calls have a read depth under 20?", "SELECT COUNT(*) FROM genotypes WHERE dp < 20"),
+    ("quality", "What is the mean genotype quality?", "SELECT AVG(gq) FROM genotypes"),
+    ("annotation", "How many variants are in the COMT gene?", f"SELECT COUNT(*) FROM {VG} WHERE gn.gene_name = 'COMT'"),
+    ("annotation", "Which gene contains the most variants, and how many?",
+     f"SELECT gn.gene_name, COUNT(*) FROM {VG} GROUP BY gn.gene_name ORDER BY COUNT(*) DESC LIMIT 1"),
+    ("annotation", "How many of this person's variants are in ClinVar?", f"SELECT COUNT(*) FROM {C}"),
+    ("annotation", "How many benign ClinVar variants does this person carry?",
+     f"SELECT COUNT(*) FROM {C} WHERE c.significance_class = 'benign'"),
+    ("annotation", "How many pathogenic ClinVar variants does this person carry?",
+     f"SELECT COUNT(*) FROM {C} WHERE c.is_pathogenic"),
+    ("unanswerable", "What is this person's lifetime risk of breast cancer?", None),
+    ("unanswerable", "What is the CADD score of rs4680?", None),
+    ("unanswerable", "Which pathogenic variants does this person have on chromosome 17?", None),
+    ("unanswerable", "Which sequencing machine produced this data?", None),
+    ("unanswerable", "Is this person more likely to respond to SSRIs?", None),
+    ("unanswerable", "Who are this person's parents?", None),
+]
+SETS = {"demo": ITEMS, "giab": GIAB_ITEMS}
+
+
+def check_gold(view, items):
+    for category, question, gold in items:
         if gold:
             res = run_readonly(gold + ";", max_rows=MAX_ROWS, search_path=view.search_path)
             print(f"{category:<12}{str(res['rows'][:2])[:50]:<52}{question[:60]}")
@@ -89,13 +121,14 @@ def main():
     p.add_argument("--model", default="qwen2.5-coder:3b")
     p.add_argument("--tag", default="byo_3b")
     p.add_argument("--check-gold", action="store_true")
+    p.add_argument("--set", choices=sorted(SETS), default="demo")
     args = p.parse_args()
 
     view = datasets.get_view(args.dataset_id)
     if view is None:
         raise SystemExit(f"Dataset {args.dataset_id} is not ready")
     if args.check_gold:
-        return check_gold(view)
+        return check_gold(view, SETS[args.set])
 
     cfg = PipelineConfig(model=args.model, schema=view, max_rows=MAX_ROWS,
                          retriever=partial(retrieve_similar_examples, dataset_id=args.dataset_id))
@@ -103,7 +136,7 @@ def main():
     records = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
     done = {r["question"] for r in records}
     with path.open("a", encoding="utf-8") as fh:
-        for category, question, gold in ITEMS:
+        for category, question, gold in SETS[args.set]:
             if question in done:
                 continue
             out = answer_question(question, cfg)
@@ -128,7 +161,7 @@ def main():
           f"declined {sum(r['correct'] for r in records if not r['answerable'])}/{len(records) - len(answerable)} unanswerable | "
           f"false declines {sum(r['status'] == 'abstained' for r in answerable)} | "
           f"silent wrong {sum(r['status'] == 'ok' and not r['correct'] for r in records)}/{len(records)}")
-    for category in dict.fromkeys(c for c, _, _ in ITEMS):
+    for category in dict.fromkeys(c for c, _, _ in SETS[args.set]):
         rs = [r for r in records if r["category"] == category]
         print(f"  {category:<13}{sum(r['correct'] for r in rs)}/{len(rs)}")
 

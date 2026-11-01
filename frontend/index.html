@@ -656,6 +656,7 @@
                 <div class="state-box" id="errorState">
                     <div class="state-icon">⚠</div>
                     <div class="state-msg error" id="errorMsg"></div>
+                    <button class="submit-btn" id="askAnyway" style="display:none;margin-top:12px">Ask anyway</button>
                 </div>
 
                 <!-- Results table -->
@@ -817,7 +818,7 @@
         }
 
         // ── MAIN QUERY FUNCTION ──
-        async function runQuery() {
+        async function runQuery(force = false) {
             const question = queryInput.value.trim();
             if (!question) return;
 
@@ -832,7 +833,7 @@
                 const res = await fetch(`${API_BASE}/query`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question, dataset_id: currentDataset() })
+                    body: JSON.stringify({ question, dataset_id: currentDataset(), force: force === true })
                 });
 
                 const body = await res.json();
@@ -853,6 +854,7 @@
                     showState('error');
                     errorMsg.classList.remove('error');
                     errorMsg.textContent = `Can't answer this from the available data: ${data.error}`;
+                    askAnyway.style.display = data.sql === null && force !== true ? 'inline-block' : 'none';
                     addToHistory(question, null, 0);
                     return;
                 }
@@ -918,6 +920,12 @@
                 e.preventDefault();
                 runQuery();
             }
+        });
+
+        const askAnyway = document.getElementById('askAnyway');
+        askAnyway.addEventListener('click', () => {
+            askAnyway.style.display = 'none';
+            runQuery(true);
         });
 
         // ── DATASETS ──

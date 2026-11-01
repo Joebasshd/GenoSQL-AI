@@ -120,3 +120,21 @@ def test_multiple_submitters_is_review_status_not_a_submitter_question():
     question = "Which ClinVar variants have review status criteria provided, multiple submitters, no conflicts?"
     assert missing_concept(question, upload_view()) is None
     assert missing_concept("Who submitted this ClinVar record?", upload_view()) is not None
+
+
+@pytest.mark.parametrize("question", [
+    "Find all pathogenic variants on chromosome 1.",
+    "Which variants on chr17 are classified as pathogenic in ClinVar?",
+    "How many variants are on the X chromosome? Check chromosome X.",
+])
+def test_chromosomes_outside_the_data_are_declined(question):
+    assert "chromosome" in missing_concept(question, REFERENCE_SCHEMA)
+
+
+@pytest.mark.parametrize("question", [
+    "How many variants are on chromosome 22?",
+    "How many SNPs are on chr22 between 30 Mb and 31 Mb?",
+    "Compare chromosome 22 with chromosome 1.",       # partly answerable: leave it to the model
+])
+def test_chromosomes_in_the_data_pass(question):
+    assert missing_concept(question, REFERENCE_SCHEMA) is None

@@ -32,6 +32,7 @@ app = FastAPI(title="GenoSQL-AI", lifespan=lifespan)
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     dataset_id: int | None = None      # None = the 1000 Genomes reference database
+    force: bool = False                # skip the answerability gates ("Ask anyway")
 
 
 def view_for(dataset_id: int | None):
@@ -92,7 +93,7 @@ def stats():
 def query(request: QueryRequest):
     """Natural-language question → SQL → results. Every call is logged."""
     view = view_for(request.dataset_id)
-    cfg = PipelineConfig(schema=view)
+    cfg = PipelineConfig(schema=view, concept_gate=not request.force, scope_gate=not request.force)
     if request.dataset_id is not None:
         cfg.retriever = partial(retrieve_similar_examples, dataset_id=request.dataset_id)
     result = answer_question(request.question, cfg)
