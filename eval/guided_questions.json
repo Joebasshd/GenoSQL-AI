@@ -1,0 +1,130 @@
+[
+ {
+  "question": "What is the genotype for the variant rs5752776 in this individual?",
+  "gold_sql": "SELECT g.gt FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs5752776';"
+ },
+ {
+  "question": "Is the variant rs165801 heterozygous or homozygous alternate in this person?",
+  "gold_sql": "SELECT CASE WHEN g.allele_count = 1 THEN 'heterozygous' WHEN g.allele_count = 2 THEN 'homozygous alternate' END FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs165801';"
+ },
+ {
+  "question": "What is the genotype of the variant rs8136840 in the CDC45 gene?",
+  "gold_sql": "SELECT g.gt FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs8136840';"
+ },
+ {
+  "question": "List all homozygous alternate variants in the gene CHEK2.",
+  "gold_sql": "SELECT v.rsid, v.pos, v.ref, v.alt FROM variants v JOIN variant_genes vg ON v.id = vg.variant_id JOIN genes ge ON vg.gene_id = ge.gene_id JOIN genotypes g ON v.id = g.variant_id WHERE ge.gene_name = 'CHEK2' AND g.allele_count = 2;"
+ },
+ {
+  "question": "How many heterozygous variants are located within the NF2 gene?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN variant_genes vg ON v.id = vg.variant_id JOIN genes ge ON vg.gene_id = ge.gene_id JOIN genotypes g ON v.id = g.variant_id WHERE ge.gene_name = 'NF2' AND g.allele_count = 1;"
+ },
+ {
+  "question": "What is the allele count for variant rs2072007 in MYO18B?",
+  "gold_sql": "SELECT g.allele_count FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs2072007';"
+ },
+ {
+  "question": "What is the genotype and read depth (dp) for variant rs4821874?",
+  "gold_sql": "SELECT g.gt, g.dp FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs4821874';"
+ },
+ {
+  "question": "How many total variants in this person's genome are homozygous alternate?",
+  "gold_sql": "SELECT COUNT(*) FROM genotypes WHERE allele_count = 2;"
+ },
+ {
+  "question": "Show the genotype and genotype quality (gq) for variant rs2281082 in TXN2.",
+  "gold_sql": "SELECT g.gt, g.gq FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs2281082';"
+ },
+ {
+  "question": "What is the zygosity of variant rs140504 in the BCR gene?",
+  "gold_sql": "SELECT CASE WHEN g.allele_count = 1 THEN 'heterozygous' WHEN g.allele_count = 2 THEN 'homozygous alternate' END FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs140504';"
+ },
+ {
+  "question": "How many heterozygous variants are present on chromosome 22 for this person?",
+  "gold_sql": "SELECT COUNT(*) FROM genotypes g JOIN variants v ON g.variant_id = v.id WHERE v.chrom = '22' AND g.allele_count = 1;"
+ },
+ {
+  "question": "What is the genotype for variant rs10714524 in MYH9?",
+  "gold_sql": "SELECT g.gt FROM variants v JOIN genotypes g ON v.id = g.variant_id WHERE v.rsid = 'rs10714524';"
+ },
+ {
+  "question": "How many of this person's variants are recorded in ClinVar?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt;"
+ },
+ {
+  "question": "How many variants in ClinVar for this person are classified as benign?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE c.significance_class = 'benign';"
+ },
+ {
+  "question": "How many variants in the gene CHEK2 in this genome are present in ClinVar?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE c.gene = 'CHEK2';"
+ },
+ {
+  "question": "List the ClinVar review status and significance class for variant rs5752776.",
+  "gold_sql": "SELECT c.review_status, c.significance_class FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE v.rsid = 'rs5752776';"
+ },
+ {
+  "question": "What is the clinical significance of variant rs165801?",
+  "gold_sql": "SELECT c.clinical_significance FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE v.rsid = 'rs165801';"
+ },
+ {
+  "question": "How many ClinVar variants carried by this person are classified with uncertain significance?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE c.significance_class = 'uncertain';"
+ },
+ {
+  "question": "How many ClinVar variants in the PDGFB gene does this person carry?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE c.gene = 'PDGFB';"
+ },
+ {
+  "question": "What associated conditions are listed in ClinVar for variant rs2252587?",
+  "gold_sql": "SELECT c.conditions FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt WHERE v.rsid = 'rs2252587';"
+ },
+ {
+  "question": "Count the number of ClinVar variants carried by this person grouped by significance class.",
+  "gold_sql": "SELECT c.significance_class, COUNT(*) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt GROUP BY c.significance_class;"
+ },
+ {
+  "question": "How many variants were called by more than 2 callsets?",
+  "gold_sql": "SELECT COUNT(*) FROM variants WHERE (info->>'callsets')::int > 2;"
+ },
+ {
+  "question": "What is the average number of callsets that called this person's variants?",
+  "gold_sql": "SELECT AVG((info->>'callsets')::float) FROM variants;"
+ },
+ {
+  "question": "How many variants in this genome were detected across 3 or more platforms?",
+  "gold_sql": "SELECT COUNT(*) FROM variants WHERE (info->>'platforms')::int >= 3;"
+ },
+ {
+  "question": "What is the maximum number of datasets supporting any single variant in this genome?",
+  "gold_sql": "SELECT MAX((info->>'datasets')::int) FROM variants;"
+ },
+ {
+  "question": "How many variants have exactly 1 callset in their info field?",
+  "gold_sql": "SELECT COUNT(*) FROM variants WHERE (info->>'callsets')::int = 1;"
+ },
+ {
+  "question": "What is the average number of datasets for variants located in the gene CHEK2?",
+  "gold_sql": "SELECT AVG((v.info->>'datasets')::float) FROM variants v JOIN variant_genes vg ON v.id = vg.variant_id JOIN genes g ON vg.gene_id = g.gene_id WHERE g.gene_name = 'CHEK2';"
+ },
+ {
+  "question": "How many variants in the gene CDC45 were called by at least 2 platforms?",
+  "gold_sql": "SELECT COUNT(*) FROM variants v JOIN variant_genes vg ON v.id = vg.variant_id JOIN genes g ON vg.gene_id = g.gene_id WHERE g.gene_name = 'CDC45' AND (v.info->>'platforms')::int >= 2;"
+ },
+ {
+  "question": "How many variants have more than 1 dataset supporting them?",
+  "gold_sql": "SELECT COUNT(*) FROM variants WHERE (info->>'datasets')::int > 1;"
+ },
+ {
+  "question": "What is the minimum number of platforms for variants on chromosome 22?",
+  "gold_sql": "SELECT MIN((info->>'platforms')::int) FROM variants WHERE chrom = '22';"
+ },
+ {
+  "question": "How many variants with rsIDs have a callsets count greater than 1?",
+  "gold_sql": "SELECT COUNT(*) FROM variants WHERE rsid IS NOT NULL AND (info->>'callsets')::int > 1;"
+ },
+ {
+  "question": "What is the average number of platforms supporting variants that are in ClinVar?",
+  "gold_sql": "SELECT AVG((v.info->>'platforms')::float) FROM variants v JOIN clinvar c ON v.chrom = c.chrom AND v.pos = c.pos AND v.ref = c.ref AND v.alt = c.alt;"
+ }
+]
