@@ -8,3 +8,4 @@ sqlglot
 sentence-transformers
 pytest
 python-multipart
+scikit-learn

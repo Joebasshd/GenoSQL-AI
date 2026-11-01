@@ -91,7 +91,7 @@ def test_gate_runs_before_the_model(monkeypatch):
 
 def test_gate_can_be_disabled(monkeypatch):
     stub(monkeypatch, ["SELECT sample_id FROM samples;"])
-    cfg = PipelineConfig(use_rag=False, schema=upload_view(), concept_gate=False, entity_check=False)
+    cfg = PipelineConfig(use_rag=False, schema=upload_view(), concept_gate=False, entity_check=False, scope_gate=False)
     assert answer_question("What is the age of NA18609?", cfg, execute=False)["status"] == "ok"
 
 
@@ -114,3 +114,9 @@ def test_single_person_file_hides_computed_frequency():
     })
     assert not {"af", "ac", "an"} & view.table_columns["variants"]
     assert "Rare" not in view.notes
+
+
+def test_multiple_submitters_is_review_status_not_a_submitter_question():
+    question = "Which ClinVar variants have review status criteria provided, multiple submitters, no conflicts?"
+    assert missing_concept(question, upload_view()) is None
+    assert missing_concept("Who submitted this ClinVar record?", upload_view()) is not None

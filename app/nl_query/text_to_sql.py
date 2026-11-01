@@ -18,7 +18,7 @@ import psycopg2
 
 from app import config
 from app.database import run_readonly
-from app.nl_query.answerability import ignored_entity, missing_concept
+from app.nl_query.answerability import ignored_entity, missing_concept, out_of_scope
 from app.nl_query.llm import chat
 from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
 from app.nl_query.sql_guard import clean_sql, validate_sql
@@ -49,6 +49,7 @@ class PipelineConfig:
     retriever: Callable | None = None   # (question, k, exclude_question) -> rows; default: pgvector memory
     schema: SchemaView = REFERENCE_SCHEMA   # what the model sees and the guard allows
     concept_gate: bool = True           # decline questions needing data this dataset lacks, before the LLM
+    scope_gate: bool = True             # decline questions the classifier places outside these databases
     entity_check: bool = True           # repair SQL that ignores an identifier named in the question
 
 
@@ -107,6 +108,11 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
             out.update(status="abstained", error=f"This dataset does not contain {missing}.",
                        latency_ms=int((time.perf_counter() - started) * 1000))
             return out
+    if cfg.scope_gate and out_of_scope(question):
+        out.update(status="abstained", latency_ms=int((time.perf_counter() - started) * 1000),
+                   error="This looks outside what the database contains: it holds variants, genotypes "
+                         "and the annotations listed in its schema.")
+        return out
 
     examples = []
     if cfg.use_rag:

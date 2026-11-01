@@ -139,6 +139,7 @@ def main():
     p.add_argument("--no-value-check", action="store_true", help="guard skips category-value check")
     p.add_argument("--no-concept-gate", action="store_true", help="skip the deterministic answerability gate")
     p.add_argument("--no-entity-check", action="store_true", help="skip the identifier coverage check")
+    p.add_argument("--no-scope-gate", action="store_true", help="skip the out-of-scope classifier")
     p.add_argument("--no-verify-abstain", action="store_true", help="accept the first CANNOT_ANSWER")
     p.add_argument("--no-grounded-abstain", action="store_true",
                    help="don't decline when every attempt needs non-existent tables/columns")
@@ -180,6 +181,7 @@ def main():
     cfg.routing_rules = not args.no_routing
     cfg.value_check = not args.no_value_check
     cfg.concept_gate = not args.no_concept_gate
+    cfg.scope_gate = not args.no_scope_gate
     cfg.entity_check = not args.no_entity_check
     cfg.verify_abstain = not args.no_verify_abstain
     cfg.grounded_abstain = not args.no_grounded_abstain
