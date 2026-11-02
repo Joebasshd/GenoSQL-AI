@@ -111,3 +111,35 @@ def test_rejects_server_identity_functions(sql):
 def test_fix_json_casts(sql, fixed):
     from app.nl_query.sql_guard import fix_json_casts
     assert fix_json_casts(sql) == fixed
+
+
+def test_reused_alias_is_a_fixable_mistake():
+    from app.nl_query.schema import REFERENCE_SCHEMA as R
+    ok, reason = validate_sql("SELECT g.sample_id FROM genotypes g JOIN variant_genes vg ON vg.variant_id = g.variant_id "
+                              "JOIN genes g ON g.gene_id = vg.gene_id;", schema=R)
+    assert not ok and reason.startswith("Wrong table") and "alias 'g'" in reason
+
+
+def test_same_alias_in_separate_subqueries_is_fine():
+    ok, reason = validate_sql("SELECT COUNT(*) FROM variants v WHERE v.pos IN (SELECT v.pos FROM variants v WHERE v.af > 0.5);")
+    assert ok, reason
+
+
+def test_column_in_another_table_is_not_missing_data():
+    ok, reason = validate_sql("SELECT gn.sample_id FROM genes gn;")
+    assert not ok and reason.startswith("Wrong table") and "genotypes" in reason
+    ok, reason = validate_sql("SELECT gn.nonsense FROM genes gn;")
+    assert not ok and reason.startswith("Table 'genes' has no column")
+
+
+@pytest.mark.parametrize("sql, fixed", [
+    ("SELECT MAX(info->>'datasets') FROM variants;", "SELECT MAX((info->>'datasets')::numeric) FROM variants;"),
+    ("SELECT 1 FROM variants v WHERE v.info->>'datasets' > '2';", "SELECT 1 FROM variants v WHERE (v.info->>'datasets')::numeric > '2';"),
+    ("SELECT (info->>'datasets')::int FROM variants;", "SELECT (info->>'datasets')::int FROM variants;"),
+    ("SELECT info->>'callsetnames' FROM variants;", "SELECT info->>'callsetnames' FROM variants;"),
+    ("SELECT AVG(info->>'datasets')::float FROM variants;", "SELECT AVG((info->>'datasets')::numeric)::float FROM variants;"),
+    ("SELECT COUNT(*) FROM variants WHERE (info->>'datasets') > '2';", "SELECT COUNT(*) FROM variants WHERE ((info->>'datasets')::numeric) > '2';"),
+])
+def test_fix_numeric_info(sql, fixed):
+    from app.nl_query.sql_guard import fix_numeric_info
+    assert fix_numeric_info(sql, frozenset({"datasets"})) == fixed

@@ -104,6 +104,15 @@ def repair_hint(problem: str, sql: str) -> str:
     return ""
 
 
+def copied_literal(question: str, sql: str, examples: list) -> str | None:
+    """A long number (a position, usually) taken from a worked example rather than from the question."""
+    used = set(re.findall(r"\b\d{5,}\b", sql))
+    asked = set(re.findall(r"\d{5,}", question.replace(",", "")))
+    from_examples = {n for row in examples for n in re.findall(r"\b\d{5,}\b", row[1])}
+    leaked = sorted((used & from_examples) - asked)
+    return leaked[0] if leaked else None
+
+
 def ignored_entity(question: str, sql: str) -> str | None:
     """An identifier named in the question that the SQL never uses."""
     for pattern in ENTITY_PATTERNS:

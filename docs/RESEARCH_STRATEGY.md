@@ -315,3 +315,11 @@ ClinVar 5/9 -> 7/9, genotypes **4/12 -> 4/12**. Question authors saw the guided 
 Remaining: genotype-in-gene questions fail because the model reuses alias `g` for genes and genotypes, then grounded
 abstention falsely declines (4 cases); rsIDs get swapped for a position taken from the worked example;
 MAX on `info` text compares strings.
+
+Fixes for those three were committed, then 34 new agreed questions (0 overlap, `eval/guided_questions_r2.json`) scored
+old code (f8d7b5c) against new (fee1df1): **20/34 -> 27/34** (new-only 9, old-only 2, McNemar p = 0.065). Genotype in a
+gene 1/7 -> 5/7, genotype at a variant 9/12 -> 10/12, ClinVar 7/8 -> 8/8, info 3/7 -> 4/7. False declines 2 -> 0. The
+question authors saw the new notes, and the prompt asked for more genotype-in-gene questions, so it may favour new code.
+Remaining: the model invents `sample_id = 'this person'`, which silently returns nothing (3 of 7 failures, 1 of the 2
+losses); `platforms` gets confused with `platformnames` (2). `fix_numeric_info` missed `AVG(info->>'k')::float` (1);
+corrected afterwards, so that fix is not in these numbers and this set is now spent for it.

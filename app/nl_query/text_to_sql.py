@@ -18,10 +18,11 @@ import psycopg2
 
 from app import config
 from app.database import run_readonly
-from app.nl_query.answerability import ignored_entity, missing_concept, out_of_scope, repair_hint
+from app.nl_query.answerability import (copied_literal, ignored_entity, missing_concept, out_of_scope,
+                                        repair_hint)
 from app.nl_query.llm import chat
 from app.nl_query.schema import REFERENCE_SCHEMA, SchemaView
-from app.nl_query.sql_guard import clean_sql, fix_json_casts, validate_sql
+from app.nl_query.sql_guard import clean_sql, fix_json_casts, fix_numeric_info, validate_sql
 from app.rag.retriever import retrieve_similar_examples
 
 ABSTAIN_MARKER = "CANNOT_ANSWER"
@@ -162,7 +163,7 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
 
         sql = clean_sql(resp.text)
         if cfg.sql_fixes:
-            sql = fix_json_casts(sql)
+            sql = fix_numeric_info(fix_json_casts(sql), cfg.schema.numeric_info_keys)
         out["sql"] = sql
         ok, problem = validate_sql(sql, check_values=cfg.value_check, schema=cfg.schema)
         status = "invalid"
@@ -170,6 +171,10 @@ def answer_question(question: str, cfg: PipelineConfig | None = None, execute: b
             entity = ignored_entity(question, sql)
             if entity:
                 ok, problem = False, f"The query does not use '{entity}', which the question asks about."
+            copied = copied_literal(question, sql, examples) if ok else None
+            if copied:
+                ok, problem = False, (f"The value {copied} comes from an example, not from the question. "
+                                      "Remove it and use only what the question gives.")
 
         if ok and execute:
             try:

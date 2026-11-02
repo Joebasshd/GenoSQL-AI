@@ -177,6 +177,8 @@ class SchemaView:
     routing: str
     categorical: dict
     search_path: str | None = None      # e.g. "ds_3, public" for an uploaded dataset
+    info_keys: frozenset = frozenset()          # keys inside the info JSONB column
+    numeric_info_keys: frozenset = frozenset()  # declared Integer/Float in the VCF header
 
     @property
     def allowed_tables(self) -> set:

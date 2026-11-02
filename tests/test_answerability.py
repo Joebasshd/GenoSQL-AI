@@ -157,3 +157,19 @@ def test_guidance_can_be_switched_off_for_comparison():
     assert "no variant_id" in with_guidance and "(info->>'MQ')::float" in with_guidance
     assert "needs no sample_id filter" in with_guidance
     assert "no variant_id" not in build_view(1, prof, guidance=False).notes
+
+
+def test_copied_literal_from_example():
+    from app.nl_query.answerability import copied_literal
+    examples = [("genotype at 22:16065333", "SELECT gt FROM v WHERE pos = 16065333;")]
+    assert copied_literal("Genotype at rs165801?", "SELECT 1 WHERE pos = 16065333 AND rsid = 'rs165801';", examples) == "16065333"
+    assert copied_literal("Genotype at 22:16,065,333?", "SELECT 1 WHERE pos = 16065333;", examples) is None
+    assert copied_literal("Count variants", "SELECT COUNT(*) FROM v;", examples) is None
+
+
+def test_info_key_used_as_column_is_fixable(monkeypatch):
+    from dataclasses import replace
+    from app.nl_query.sql_guard import validate_sql
+    view = replace(upload_view(), info_keys=frozenset({"platforms"}))
+    ok, reason = validate_sql("SELECT COUNT(*) FROM variants WHERE platforms > 2;", schema=view)
+    assert not ok and reason.startswith("Wrong table") and "info->>'platforms'" in reason
