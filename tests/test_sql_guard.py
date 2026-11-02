@@ -137,6 +137,8 @@ def test_column_in_another_table_is_not_missing_data():
     ("SELECT 1 FROM variants v WHERE v.info->>'datasets' > '2';", "SELECT 1 FROM variants v WHERE (v.info->>'datasets')::numeric > '2';"),
     ("SELECT (info->>'datasets')::int FROM variants;", "SELECT (info->>'datasets')::int FROM variants;"),
     ("SELECT info->>'callsetnames' FROM variants;", "SELECT info->>'callsetnames' FROM variants;"),
+    ("SELECT AVG(info->>'datasets')::float FROM variants;", "SELECT AVG((info->>'datasets')::numeric)::float FROM variants;"),
+    ("SELECT COUNT(*) FROM variants WHERE (info->>'datasets') > '2';", "SELECT COUNT(*) FROM variants WHERE ((info->>'datasets')::numeric) > '2';"),
 ])
 def test_fix_numeric_info(sql, fixed):
     from app.nl_query.sql_guard import fix_numeric_info

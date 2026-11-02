@@ -54,7 +54,10 @@ def fix_json_casts(sql: str) -> str:
 def fix_numeric_info(sql: str, keys: frozenset) -> str:
     """info->>'k' is text, so MAX and > compare strings ('9' > '10'). Cast keys the VCF header declares numeric."""
     for key in keys:
-        sql = re.sub(rf"((?:\w+\.)?info->>'{re.escape(key)}')(?!\s*\)\s*::|\s*::)", r"(\1)::numeric", sql)
+        field = rf"(?:\w+\.)?info->>'{re.escape(key)}'"
+        # AVG(info->>'k')::float casts the result of AVG, so only a bare (info->>'k')::x counts as already cast.
+        sql = re.sub(rf"(\W\({field}\s*\)\s*::)|({field})(?!\s*::)",
+                     lambda m: m.group(1) or f"({m.group(2)})::numeric", sql)
     return sql
 
 
