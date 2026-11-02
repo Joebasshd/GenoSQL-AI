@@ -323,3 +323,15 @@ question authors saw the new notes, and the prompt asked for more genotype-in-ge
 Remaining: the model invents `sample_id = 'this person'`, which silently returns nothing (3 of 7 failures, 1 of the 2
 losses); `platforms` gets confused with `platformnames` (2). `fix_numeric_info` missed `AVG(info->>'k')::float` (1);
 corrected afterwards, so that fix is not in these numbers and this set is now spent for it.
+
+Next, the guard checked `sample_id` values and info keys, and worked examples were added for zygosity and numeric info
+fields. 33 new questions, authored from the pre-fix notes so they cannot favour the fix, scored main (34a75ee) against
+the new code: **23/33 -> 24/33** (new-only 4, old-only 3, McNemar p = 1.0), no measurable overall gain. By skill: genotype at a
+variant 6/10 -> 8/10, genotype in a gene 5/7 -> 6/7, ClinVar 5/8 -> 4/8, info 7/8 -> 6/8.
+The sample check did its job: all 4 wins are old queries with an invented sample name returning nothing, and no invented
+name survives in the new SQL. Exact-match scoring undercounts zygosity: `heterozygous` lost against a gold of
+`allele_count`, and `homozygous` failed against `homozygous alternate`; both left as scored.
+Remaining: `callsets` is still confused with `callsetnames` / `datasetnames` (2, 1 of them a loss), so the note did not
+fix this; a value from a worked example leaks into the query (`significance_class = 'likely_benign'`, 2, 1 a loss), which
+`copied_literal` misses because it only looks at long numbers; `conditions = 'not provided'` needs a substring match (1);
+the scope classifier declined a heterozygous SNP count in a gene (1).
