@@ -4,6 +4,10 @@ Measure the guided-answers changes on fresh questions about an uploaded genome.
     python -m eval.guided_eval --dataset-id 8 --build     # Gemini writes and agrees the question set
     python -m eval.guided_eval --dataset-id 8             # score baseline vs guided, resumable
 
+    python -m eval.guided_eval --dataset-id 8 --questions eval/guided_questions_r2.json --build
+    python -m eval.guided_eval --dataset-id 8 --questions eval/guided_questions_r2.json --label r2_after
+                                                          # one arm of the current code, to compare commits
+
 The author writes questions with gold SQL; a different reviewer writes its own SQL from
 the question alone. Only questions whose two queries return the same result are kept.
 Both arms use in-process example memory, so stored examples aren't touched.
@@ -33,9 +37,10 @@ Database documentation:
 {schema}
 
 Write {n} varied, unambiguous questions with a PostgreSQL query answering each, split evenly across:
-1. the genotype or zygosity at a specific variant or in a gene
-2. how many of this person's variants are in ClinVar, by class, gene or condition
-3. questions needing a numeric field inside the info column
+1. the genotype or zygosity at a specific variant
+2. how many heterozygous or homozygous variants this person has in a gene or region
+3. how many of this person's variants are in ClinVar, by class, gene or condition
+4. questions needing a numeric field inside the info column
 Use rsIDs, genes and values that really occur: {facts}.
 Answers must be small: a count, an aggregate or at most 20 rows, and never empty.
 Return JSON: [{{"question": str, "gold_sql": str}}, ...]"""
@@ -62,15 +67,18 @@ def agree(a, b) -> bool:
     return results_match(a, b)["relaxed"] or results_match(b, a)["relaxed"]
 
 
-def build(view):
+def build(view, path: Path):
     facts = run_readonly(
         "SELECT c.rsid, c.gene, c.significance_class FROM variants v JOIN clinvar c ON c.chrom = v.chrom AND "
         "c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt WHERE c.rsid IS NOT NULL ORDER BY md5(c.rsid) LIMIT 25",
         max_rows=25, search_path=view.search_path)["rows"]
     keys = run_readonly("SELECT DISTINCT jsonb_object_keys(info) FROM variants", max_rows=40,
                         search_path=view.search_path)["rows"]
+    genes = run_readonly("SELECT g.gene_name, COUNT(*) FROM variant_genes vg JOIN genes g ON g.gene_id = vg.gene_id "
+                         "GROUP BY 1 ORDER BY 2 DESC LIMIT 15", max_rows=15, search_path=view.search_path)["rows"]
     prompt = AUTHOR.format(schema=view.prompt(True, True), n=36,
-                           facts=f"ClinVar variants {facts}; info keys {[k[0] for k in keys]}")
+                           facts=f"ClinVar variants {facts}; genes with variant counts {genes}; "
+                                 f"info keys {[k[0] for k in keys]}")
     proposals, author = gemini("author", prompt)
     usable = []
     for item in proposals:
@@ -86,7 +94,7 @@ def build(view):
         if rows is not None and agree(item["rows"], rows):
             kept.append({"question": item["question"], "gold_sql": clean_sql(item["gold_sql"])})
     print(f"{author} / {reviewer}: {len(proposals)} proposed, {len(usable)} usable, {len(kept)} agreed")
-    QUESTIONS.write_text(json.dumps(kept, indent=1), encoding="utf-8")
+    path.write_text(json.dumps(kept, indent=1), encoding="utf-8")
 
 
 def arm(name: str, items, view, memory, sql_fixes: bool) -> list[dict]:
@@ -115,15 +123,21 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--dataset-id", type=int, required=True)
     p.add_argument("--build", action="store_true")
+    p.add_argument("--questions", type=Path, default=QUESTIONS)
+    p.add_argument("--label", help="score only the current code under this name")
     args = p.parse_args()
     view = datasets.get_view(args.dataset_id)
     if args.build:
-        return build(view)
+        return build(view, args.questions)
 
-    items = json.loads(QUESTIONS.read_text(encoding="utf-8"))
+    items = json.loads(args.questions.read_text(encoding="utf-8"))
     with datasets.engine.connect() as conn:
         profile = conn.execute(datasets.text("SELECT profile FROM datasets WHERE id = :i"),
                                {"i": args.dataset_id}).scalar()
+    if args.label:
+        memory = Memory(datasets.starter_examples(args.dataset_id, profile, view))
+        records = arm(args.label, items, view, memory, True)
+        return print(f"\n{args.label} {sum(r['relaxed'] for r in records)}/{len(items)}")
     plain = datasets.build_view(args.dataset_id, profile, guidance=False)
     baseline = arm("baseline", items, plain,
                    Memory(datasets.starter_examples(args.dataset_id, profile, plain, guidance=False)), False)

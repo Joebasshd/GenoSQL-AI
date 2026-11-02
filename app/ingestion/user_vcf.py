@@ -30,7 +30,7 @@ class VcfError(ValueError):
 @dataclass
 class VcfHeader:
     samples: list[str] = field(default_factory=list)
-    info: dict = field(default_factory=dict)         # id -> (number, description)
+    info: dict = field(default_factory=dict)         # id -> (number, description, type)
     contigs: dict = field(default_factory=dict)      # normalized name -> length
     reference: str = ""
 
@@ -61,7 +61,7 @@ def read_header(path: str) -> VcfHeader:
             elif line.startswith("##INFO="):
                 m = INFO_LINE.match(line)
                 if m:
-                    header.info[m.group(1)] = (m.group(2), m.group(4))
+                    header.info[m.group(1)] = (m.group(2), m.group(4), m.group(3))
             elif line.startswith("##contig="):
                 m = CONTIG_LINE.match(line)
                 if m:

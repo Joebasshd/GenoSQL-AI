@@ -107,8 +107,11 @@ def build_profile(schema: str, header, build: str, info_keys: set) -> dict:
                 "genotype_dp": _scalar(conn, f"SELECT COUNT(dp) > 0 FROM {s}.genotypes"),
                 "genotypes": _scalar(conn, f"SELECT EXISTS (SELECT 1 FROM {s}.genotypes)"),
             },
+            "all_info_keys": sorted(info_keys),
+            "numeric_info_keys": sorted(k for k in info_keys if header.info.get(k, ("", "", ""))[0] == "1"
+                                        and header.info[k][2] in ("Integer", "Float")),
             "info_keys": [
-                {"id": sanitize(k, 30), "description": sanitize(header.info.get(k, ("", ""))[1], 45)}
+                {"id": sanitize(k, 30), "description": sanitize(header.info.get(k, ("", "", ""))[1], 45)}
                 for k in sorted(info_keys)[:MAX_INFO_KEYS]
             ],
         }
@@ -233,6 +236,13 @@ def build_view(dataset_id: int, profile: dict, guidance: bool = True) -> SchemaV
                          "It is not a count of heterozygous genotypes.")
         if profile["info_keys"]:
             notes.append("- info values are text. Cast with parentheses: (info->>'MQ')::float > 55.")
+            numeric = [k for k in profile.get("numeric_info_keys", [])][:MAX_INFO_KEYS]
+            if numeric:
+                notes.append(f"- Numeric info fields: {_quoted(numeric)}. Other info keys are text.")
+        notes.append("- Give each table its own alias: v variants, gt genotypes, gn genes, vg variant_genes, "
+                     "c clinvar, s samples.")
+        if has["rsid"]:
+            notes.append("- When a question gives an rsID, filter on rsid alone; do not add a position.")
         if "genotypes" in tables:
             notes.append("- For 'the genotype at' a variant, select genotypes.gt (and sample_id) by joining "
                          "variants. allele_count 1 is heterozygous, 2 is homozygous.")
@@ -246,7 +256,9 @@ def build_view(dataset_id: int, profile: dict, guidance: bool = True) -> SchemaV
                          "benign. Do not compare clinical_significance to exact text.")
 
     return SchemaView(tables, "\n".join(notes), "\n".join(routing), categorical,
-                      search_path=f"{schema_name(dataset_id)}, public")
+                      search_path=f"{schema_name(dataset_id)}, public",
+                      info_keys=frozenset(profile.get("all_info_keys", [])),
+                      numeric_info_keys=frozenset(profile.get("numeric_info_keys", [])))
 
 
 def get_view(dataset_id: int) -> SchemaView | None:
@@ -273,9 +285,12 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
     with engine.connect() as conn:
         v = conn.execute(text(f"""
             SELECT v.chrom, v.pos, v.ref, v.alt FROM {schema}.variants v
-            JOIN {schema}.genotypes g ON g.variant_id = v.id LIMIT 1""")).first()
+            JOIN {schema}.genotypes gt ON gt.variant_id = v.id LIMIT 1""")).first()
         if v is None:
             v = conn.execute(text(f"SELECT chrom, pos, ref, alt FROM {schema}.variants LIMIT 1")).first()
+        rsid = conn.execute(text(f"""
+            SELECT v.rsid FROM {schema}.variants v JOIN {schema}.genotypes gt ON gt.variant_id = v.id
+            WHERE v.rsid ~ '^rs[0-9]+$' LIMIT 1""")).scalar()
     low, high = profile["pos_range"]
     mid = (low + high) // 2
     span = f"pos BETWEEN {mid} AND {mid + 100000}"
@@ -290,7 +305,7 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
     if "genotypes" in view.tables:
         seeds += [
             (f"who carries the {v.ref}>{v.alt} variant at {v.chrom}:{v.pos}",
-             f"SELECT g.sample_id, g.gt FROM genotypes g JOIN variants v ON v.id = g.variant_id WHERE {at};"),
+             f"SELECT gt.sample_id, gt.gt FROM genotypes gt JOIN variants v ON v.id = gt.variant_id WHERE {at};"),
             ("how many variants does each sample carry",
              "SELECT sample_id, COUNT(*) AS n FROM genotypes GROUP BY sample_id ORDER BY n DESC;"),
             ("how many homozygous alternate genotypes does each sample have",
@@ -306,12 +321,22 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
                       "JOIN clinvar c ON c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt "
                       "WHERE c.is_pathogenic;"))
         seeds.append(("number of variants in each gene",
-                      "SELECT g.gene_name, COUNT(*) AS n FROM variants v JOIN variant_genes vg ON vg.variant_id = v.id "
-                      "JOIN genes g ON g.gene_id = vg.gene_id GROUP BY g.gene_name ORDER BY n DESC;"))
+                      "SELECT gn.gene_name, COUNT(*) AS n FROM variants v JOIN variant_genes vg ON vg.variant_id = v.id "
+                      "JOIN genes gn ON gn.gene_id = vg.gene_id GROUP BY gn.gene_name ORDER BY n DESC;"))
     if guidance:
         if "genotypes" in view.tables:
             seeds.append((f"what is the genotype at {v.chrom}:{v.pos}",
-                          f"SELECT g.sample_id, g.gt FROM genotypes g JOIN variants v ON v.id = g.variant_id WHERE {at};"))
+                          f"SELECT gt.sample_id, gt.gt FROM genotypes gt JOIN variants v ON v.id = gt.variant_id WHERE {at};"))
+            if rsid:
+                seeds.append((f"what is the genotype at {rsid}",
+                              "SELECT gt.sample_id, gt.gt FROM genotypes gt JOIN variants v ON v.id = gt.variant_id "
+                              f"WHERE v.rsid = '{rsid}';"))
+            if "variant_genes" in view.tables:
+                seeds.append(("how many heterozygous variants are in the gene with the most variants",
+                              "SELECT COUNT(*) FROM genotypes gt JOIN variant_genes vg ON vg.variant_id = gt.variant_id "
+                              "JOIN genes gn ON gn.gene_id = vg.gene_id WHERE gt.allele_count = 1 AND gn.gene_name = "
+                              "(SELECT gn2.gene_name FROM variant_genes vg2 JOIN genes gn2 ON gn2.gene_id = vg2.gene_id "
+                              "GROUP BY gn2.gene_name ORDER BY COUNT(*) DESC LIMIT 1);"))
         if "clinvar" in view.tables:
             on = "c.chrom = v.chrom AND c.pos = v.pos AND c.ref = v.ref AND c.alt = v.alt"
             seeds.append(("how many of these variants are listed in ClinVar",

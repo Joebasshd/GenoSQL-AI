@@ -51,6 +51,13 @@ def fix_json_casts(sql: str) -> str:
     return re.sub(r"((?:\w+\.)?\w+->>'[^']+')::(\w+)", r"(\1)::\2", sql)
 
 
+def fix_numeric_info(sql: str, keys: frozenset) -> str:
+    """info->>'k' is text, so MAX and > compare strings ('9' > '10'). Cast keys the VCF header declares numeric."""
+    for key in keys:
+        sql = re.sub(rf"((?:\w+\.)?info->>'{re.escape(key)}')(?!\s*\)\s*::|\s*::)", r"(\1)::numeric", sql)
+    return sql
+
+
 def _function_name(node: exp.Func) -> str:
     if isinstance(node, exp.Anonymous):
         return str(node.this).lower()
@@ -109,6 +116,17 @@ def validate_sql(sql: str, check_values: bool = True,
         if name in ALLOWED_TABLES:
             alias_to_table[table.alias_or_name.lower()] = name
     used_tables = set(alias_to_table.values())
+
+    for select in tree.find_all(exp.Select):
+        scope = [t for t in select.find_all(exp.Table) if t.name and t.find_ancestor(exp.Select) is select]
+        seen = {}
+        for table in scope:
+            alias = table.alias_or_name.lower()
+            if alias in seen:
+                return False, (f"Wrong table: alias '{alias}' is used for both {seen[alias]} and {table.name}. "
+                               "Give each table its own alias, e.g. gt for genotypes and gn for genes.")
+            seen[alias] = table.name
+
     has_derived = bool(cte_names) or any(True for _ in tree.find_all(exp.Subquery))
     unqualified_ok = (ALLOWED_COLUMNS if has_derived or not used_tables
                       else set().union(*(TABLE_COLUMNS[t] for t in used_tables)))
@@ -121,13 +139,23 @@ def validate_sql(sql: str, check_values: bool = True,
         if qualifier in alias_to_table:
             table = alias_to_table[qualifier]
             if name not in TABLE_COLUMNS[table]:
+                # Only a name found nowhere means missing data; these are fixable mistakes.
+                owners = sorted(t for t, cols in TABLE_COLUMNS.items() if name in cols)
+                if owners:
+                    return False, (f"Wrong table: table '{table}' has no column '{col.name}'; it is in "
+                                   f"{', '.join(owners)}. Join that table and use its alias.")
+                if col.name in schema.info_keys:
+                    return False, f"Wrong table: '{col.name}' is not a column; use info->>'{col.name}'."
                 return False, (f"Table '{table}' has no column '{col.name}'. "
                                f"Its columns: {', '.join(sorted(TABLE_COLUMNS[table]))}.")
         elif name not in (ALLOWED_COLUMNS if qualifier else unqualified_ok):
             where = ", ".join(sorted(t for t, cols in TABLE_COLUMNS.items() if name in cols))
+            if col.name in schema.info_keys:
+                return False, f"Wrong table: '{col.name}' is not a column; use info->>'{col.name}'."
             hint = f" ('{col.name}' exists only in: {where} — join it.)" if where else ""
             tables = sorted(used_tables) or sorted(ALLOWED_TABLES)
-            return False, (f"Unknown column '{col.name}' for {', '.join(tables)}.{hint} "
+            prefix = "Wrong table: " if where else ""
+            return False, (f"{prefix}Unknown column '{col.name}' for {', '.join(tables)}.{hint} "
                            f"Valid columns: {', '.join(sorted(set().union(*(TABLE_COLUMNS[t] for t in tables))))}.")
 
     if check_values:
