@@ -305,3 +305,13 @@ that repairs SQL ignoring a named sample or rsID. Declines offer "Ask anyway".
 - 1000G fixed subset before -> after: EX 53.7 % -> 53.7 % (3 won, 1 lost, p = 0.63), declines 2/6 -> 4/6, false declines
   2 -> 5, silent wrong 43 % -> 33 %. Benchmark questions are in the classifier's training data, so optimistic.
   One real regression: a ClinVar conditions question for rs73885319 was declined by the classifier.
+
+## 8. Guided answers for uploads (2026-11-02)
+
+Notes, worked examples and SQL fixes for ClinVar joins, classes, genotype lookups and JSON casts were frozen, then
+two Gemini models agreed 32 fresh questions on GIAB HG001 (`eval/guided_eval.py`). Same questions, 3B, with and without:
+**baseline 11/32 -> guided 18/32** (guided-only 9, baseline-only 2, McNemar p = 0.065). By skill: info fields 2/11 -> 7/11,
+ClinVar 5/9 -> 7/9, genotypes **4/12 -> 4/12**. Question authors saw the guided notes, which may favour that arm.
+Remaining: genotype-in-gene questions fail because the model reuses alias `g` for genes and genotypes, then grounded
+abstention falsely declines (4 cases); rsIDs get swapped for a position taken from the worked example;
+MAX on `info` text compares strings.
