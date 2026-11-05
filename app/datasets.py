@@ -71,6 +71,11 @@ def annotate_variant_genes(conn, schema: str) -> int:
     return _scalar(conn, f"SELECT COUNT(*) FROM {schema}.variant_genes")
 
 
+def clean_sample_ids(samples: list) -> list:
+    """Names the guard may quote back to the LLM; a file with unsafe names just goes unchecked."""
+    return list(samples) if all(sanitize(x, 30) == x for x in samples) else []
+
+
 def build_profile(schema: str, header, build: str, info_keys: set) -> dict:
     s = schema
     with engine.begin() as conn:
@@ -85,6 +90,7 @@ def build_profile(schema: str, header, build: str, info_keys: set) -> dict:
             "n_samples": len(header.samples),
             "file_has_af": "AF" in header.info,
             "sample_examples": [sanitize(x, 30) for x in header.samples[:8]],
+            "sample_ids": clean_sample_ids(header.samples),
             "annotated": annotated,
             "gene_links": gene_links,
             "clinvar_matches": clinvar_matches,
@@ -191,6 +197,8 @@ def build_view(dataset_id: int, profile: dict, guidance: bool = True) -> SchemaV
         categorical["sv_type"] = set(sv_types)
     if len(filters) > 1:
         categorical["filter"] = set(filters)
+    if profile.get("sample_ids"):
+        categorical["sample_id"] = set(profile["sample_ids"])
 
     if n and has["genotypes"]:
         genotype_columns = [
@@ -238,7 +246,8 @@ def build_view(dataset_id: int, profile: dict, guidance: bool = True) -> SchemaV
             notes.append("- info values are text. Cast with parentheses: (info->>'MQ')::float > 55.")
             numeric = [k for k in profile.get("numeric_info_keys", [])][:MAX_INFO_KEYS]
             if numeric:
-                notes.append(f"- Numeric info fields: {_quoted(numeric)}. Other info keys are text.")
+                notes.append(f"- Numeric info fields: {_quoted(numeric)}. Other info keys are text. Use a numeric "
+                             "field for counts and comparisons; do not count or pattern-match a text field.")
         notes.append("- Give each table its own alias: v variants, gt genotypes, gn genes, vg variant_genes, "
                      "c clinvar, s samples.")
         if has["rsid"]:
@@ -331,6 +340,10 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
                 seeds.append((f"what is the genotype at {rsid}",
                               "SELECT gt.sample_id, gt.gt FROM genotypes gt JOIN variants v ON v.id = gt.variant_id "
                               f"WHERE v.rsid = '{rsid}';"))
+                seeds.append((f"is {rsid} heterozygous or homozygous",
+                              "SELECT CASE WHEN gt.allele_count = 1 THEN 'heterozygous' WHEN gt.allele_count = 2 "
+                              "THEN 'homozygous' END AS zygosity FROM genotypes gt JOIN variants v ON "
+                              f"v.id = gt.variant_id WHERE v.rsid = '{rsid}';"))
             if "variant_genes" in view.tables:
                 seeds.append(("how many heterozygous variants are in the gene with the most variants",
                               "SELECT COUNT(*) FROM genotypes gt JOIN variant_genes vg ON vg.variant_id = gt.variant_id "
@@ -344,6 +357,12 @@ def starter_examples(dataset_id: int, profile: dict, view: SchemaView,
             seeds.append(("how many likely benign ClinVar variants are here",
                           f"SELECT COUNT(*) FROM variants v JOIN clinvar c ON {on} "
                           "WHERE c.significance_class = 'likely_benign';"))
+        numeric = sorted(k for k in view.numeric_info_keys if re.fullmatch(r"\w+", k))
+        if numeric:
+            seeds.append((f"how many variants have {numeric[0]} of at least 2",
+                          f"SELECT COUNT(*) FROM variants WHERE (info->>'{numeric[0]}')::numeric >= 2;"))
+            seeds.append((f"what is the average {numeric[0]}",
+                          f"SELECT AVG((info->>'{numeric[0]}')::numeric) FROM variants;"))
     return seeds
 
 

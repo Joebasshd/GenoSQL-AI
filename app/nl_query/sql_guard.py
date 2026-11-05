@@ -33,6 +33,9 @@ WRITE_NODES = (
 # PostgreSQL implicit column-like identifiers that aren't real columns.
 PSEUDO_COLUMNS = {"ctid", "excluded"}
 
+# Sample and info names can run to hundreds; an error only needs enough to repair from.
+MAX_LISTED_VALUES = 30
+
 
 def clean_sql(raw: str) -> str:
     """Strip markdown fences, comments and surrounding prose from model output."""
@@ -161,6 +164,12 @@ def validate_sql(sql: str, check_values: bool = True,
             return False, (f"{prefix}Unknown column '{col.name}' for {', '.join(tables)}.{hint} "
                            f"Valid columns: {', '.join(sorted(set().union(*(TABLE_COLUMNS[t] for t in tables))))}.")
 
+    if schema.info_keys:
+        for key in re.findall(r"info\s*->>\s*'([^']+)'", sql):
+            if key not in schema.info_keys:
+                known = [k for k in sorted(schema.info_keys) if re.fullmatch(r"\w+", k)][:MAX_LISTED_VALUES]
+                return False, f"Unknown column '{key}' in info. Info keys: {', '.join(known)}."
+
     if check_values:
         problem = _check_category_values(tree, schema.categorical)
         if problem:
@@ -180,7 +189,7 @@ def _check_category_values(tree, categorical: dict) -> str | None:
         allowed = categorical.get(col.name.lower())
         if allowed is not None and lit.this not in allowed:
             return (f"'{lit.this}' is not a valid value for {col.name}. "
-                    f"Valid values: {', '.join(sorted(allowed))}.")
+                    f"Valid values: {', '.join(sorted(allowed)[:MAX_LISTED_VALUES])}.")
         return None
 
     for node in tree.find_all(exp.EQ, exp.NEQ):
